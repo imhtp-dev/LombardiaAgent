@@ -413,6 +413,6 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     # EXACT SAME CONFIGURATION AS APP.PY
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8080))
     host = os.environ.get("HOST", "0.0.0.0")
     uvicorn.run("bot:app", host=host, port=port, reload=False)

@@ -4,7 +4,7 @@
 ambiente="prod"
 import requests
 import json
-from services.amb_json_flow_english import recupera_amb_json_flow
+from services.amb_json_flow_eng import recupera_amb_json_flow
 
 def get_token():
     url = 'https://cerbahc.auth.eu-central-1.amazoncognito.com/oauth2/token'

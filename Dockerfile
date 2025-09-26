@@ -51,6 +51,6 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE $PORT
 
-# Start command optimized for concurrent calls
-CMD ["python", "-m", "uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--loop", "uvloop"]
+# Start command optimized for 9-10 concurrent calls
+CMD ["python", "-m", "uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--loop", "uvloop", "--backlog", "2048", "--limit-concurrency", "10"]
 
