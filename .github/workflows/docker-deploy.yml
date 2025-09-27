@@ -31,7 +31,7 @@ jobs:
           git config --global --add safe.directory /home/${{ secrets.VM_USERNAME }}/voilavoicebooking
           git remote set-url origin https://github.com/imhtp-dev/voilavoicebooking.git
           git config --global credential.helper store
-          echo "https://mohammad-mussab:${{ secrets.GITHUB_TOKEN }}@github.com" > ~/.git-credentials
+          echo "https://mohammad-mussab:${{ secrets.TOKEN }}@github.com" > ~/.git-credentials
           git fetch origin
           git reset --hard origin/main
 
