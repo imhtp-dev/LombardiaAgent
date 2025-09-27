@@ -8,10 +8,15 @@ import re
 import asyncio
 import wave
 import time
+import logging
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from loguru import logger
+
+# Enable Deepgram and WebSocket debugging
+logging.getLogger("deepgram").setLevel(logging.DEBUG)
+logging.getLogger("websockets").setLevel(logging.DEBUG)
 
 # FastAPI (COPIED FROM APP.PY)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -269,6 +274,24 @@ async def websocket_endpoint(websocket: WebSocket):
         # CREATE SERVICES USING BOT.PY COMPONENTS
         logger.info("Initializing services...")
         stt = create_stt_service()
+
+        # ADD DEEPGRAM WEBSOCKET EVENT HANDLERS FOR DEBUGGING
+        logger.debug("🔍 Setting up Deepgram WebSocket event handlers...")
+
+        @stt.event_handler("on_connection_opened")
+        async def on_deepgram_open():
+            logger.success("✅ Deepgram WebSocket connection opened")
+
+        @stt.event_handler("on_connection_closed")
+        async def on_deepgram_close():
+            logger.warning("⚠️ Deepgram WebSocket connection closed")
+
+        @stt.event_handler("on_connection_error")
+        async def on_deepgram_error(error):
+            logger.error(f"❌ Deepgram WebSocket error: {error}")
+            logger.error(f"❌ Error type: {type(error)}")
+            logger.error(f"❌ Error details: {str(error)}")
+
         tts = create_tts_service()
         llm = create_llm_service()
         context_aggregator = create_context_aggregator(llm)
@@ -389,6 +412,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # Start pipeline
         runner = PipelineRunner()
+
+        # ADD DEEPGRAM CONNECTION DEBUGGING
+        logger.debug("🔍 About to start pipeline - this will trigger Deepgram WebSocket connection...")
+        logger.debug(f"🔍 STT service type: {type(stt)}")
 
         logger.info(f"🚀 Healthcare Flow Pipeline started for session: {session_id}")
         logger.info(f"🏥 Intelligent conversation flows ACTIVE")

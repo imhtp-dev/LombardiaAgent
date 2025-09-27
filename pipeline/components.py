@@ -7,6 +7,7 @@ from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from deepgram import LiveOptions
+from loguru import logger
 
 from config.settings import settings
 
@@ -14,24 +15,38 @@ from config.settings import settings
 def create_stt_service() -> DeepgramSTTService:
     """Create and configure Deepgram STT service"""
     config = settings.deepgram_config
-    
-    return DeepgramSTTService(
-        api_key=config["api_key"],
-        sample_rate=config["sample_rate"],
-        live_options=LiveOptions(
-            model=config["model"],
-            language=config["language"],
-            encoding=config["encoding"],
-            channels=config["channels"],
+
+    # ADD DEBUGGING LOGS
+    logger.debug(f"🔍 Creating Deepgram STT with API key: {config['api_key'][:10]}...")
+    logger.debug(f"🔍 Deepgram config: {config}")
+
+    try:
+        stt_service = DeepgramSTTService(
+            api_key=config["api_key"],
             sample_rate=config["sample_rate"],
-            interim_results=config["interim_results"],
-            smart_format=config["smart_format"],
-            punctuate=config["punctuate"],
-            vad_events=config["vad_events"],
-            profanity_filter=config["profanity_filter"],
-            numerals=config["numerals"]
+            live_options=LiveOptions(
+                model=config["model"],
+                language=config["language"],
+                encoding=config["encoding"],
+                channels=config["channels"],
+                sample_rate=config["sample_rate"],
+                interim_results=config["interim_results"],
+                smart_format=config["smart_format"],
+                punctuate=config["punctuate"],
+                vad_events=config["vad_events"],
+                profanity_filter=config["profanity_filter"],
+                numerals=config["numerals"]
+            )
         )
-    )
+
+        # ADD SUCCESS LOG
+        logger.success("✅ Deepgram STT service created successfully")
+        return stt_service
+
+    except Exception as e:
+        # ADD ERROR LOG
+        logger.error(f"❌ Failed to create Deepgram STT service: {e}")
+        raise
 
 
 def create_tts_service() -> ElevenLabsTTSService:

@@ -7,11 +7,6 @@ services:
       - "8000:8000"
     environment:
       - PORT=8000
-    extra_hosts:
-      - "api.deepgram.com:host-gateway"
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     env_file:
       - .env
     restart: unless-stopped
