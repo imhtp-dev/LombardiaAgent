@@ -1,28 +1,32 @@
 # Core PipeCat with all services
-pipecat-ai[daily,openai,silero,deepgram,elevenlabs]
+  pipecat-ai[daily,openai,silero,deepgram,elevenlabs]
 
-# Additional AI services
-deepgram-sdk
-cartesia
+  # AI/ML dependencies
+  torch>=2.0.0
+  torchaudio>=2.0.0
 
-# Health booking API dependencies
-requests>=2.32.5
-aiohttp>=3.8.0
-rapidfuzz>=3.0.0
-pydantic>=2.0.0
-fastapi>=0.100.0
+  # Additional AI services
+  deepgram-sdk
+  cartesia
 
-# Configuration and utilities
-python-dotenv~=1.0.1
-loguru>=0.7.0
+  # Health booking API dependencies
+  requests>=2.32.5
+  aiohttp>=3.8.0
+  rapidfuzz>=3.0.0
+  pydantic>=2.0.0
+  fastapi>=0.100.0
 
-# Production dependencies
-charset_normalizer>=3.4.3
-urllib3>=2.5.0
-pipecat-ai-flows>=0.0.20
-anthropic>=0.67.0
-google-genai>=1.36.0 
-python-json-logger>=3.3.0
-uvicorn>=0.36.0
-websockets
-numpy
+  # Configuration and utilities
+  python-dotenv~=1.0.1
+  loguru>=0.7.0
+
+  # Production dependencies
+  charset_normalizer>=3.4.3
+  urllib3>=2.5.0
+  pipecat-ai-flows>=0.0.20
+  anthropic>=0.67.0
+  google-genai>=1.36.0
+  python-json-logger>=3.3.0
+  uvicorn>=0.36.0
+  websockets
+  numpy
