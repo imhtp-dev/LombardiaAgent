@@ -103,3 +103,15 @@ recordings/
 *.wav
 *.mp3
 *.mp4
+
+# Security - SSH Keys and Certificates (NEVER commit these!)
+*.pem
+*.pem:Zone.Identifier
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.ssh
+voilavoicebookingvm_key*
