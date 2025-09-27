@@ -26,8 +26,12 @@ jobs:
           # Navigate to project directory
           cd /home/${{ secrets.VM_USERNAME }}/voilavoicebooking
 
-          # Pull latest changes from GitHub
+          # Pull latest changes from GitHub with proper authentication
           echo "📥 Pulling latest changes..."
+          git config --global --add safe.directory /home/${{ secrets.VM_USERNAME }}/voilavoicebooking
+          git remote set-url origin https://github.com/imhtp-dev/voilavoicebooking.git
+          git config --global credential.helper store
+          echo "https://mohammad-mussab:${{ secrets.GITHUB_TOKEN }}@github.com" > ~/.git-credentials
           git fetch origin
           git reset --hard origin/main
 
