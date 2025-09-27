@@ -1,47 +1,60 @@
 # syntax=docker/dockerfile:1
-  FROM python:3.11-slim
 
-  ENV PYTHONDONTWRITEBYTECODE=1 \
-      PYTHONUNBUFFERED=1 \
-      PYTHONPATH=/app \
-      PORT=8000 \
-      NLTK_DATA=/usr/local/nltk_data
+# Multi-stage build for optimal caching
+FROM python:3.11-slim as base
 
-  WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PORT=8000 \
+    NLTK_DATA=/usr/local/nltk_data \
+    TORCH_HOME=/opt/torch
 
-  # Install system dependencies (cached layer)
-  RUN apt-get update && apt-get install -y \
-      gcc g++ ffmpeg libsndfile1 portaudio19-dev python3-dev curl \
-      && rm -rf /var/lib/apt/lists/*
+# Install system dependencies in separate layer (rarely changes)
+FROM base as system-deps
+RUN apt-get update && apt-get install -y \
+    gcc g++ ffmpeg libsndfile1 portaudio19-dev python3-dev curl \
+    && rm -rf /var/lib/apt/lists/*
 
-  # Copy requirements and use cache mount for pip
-  COPY requirements.txt .
-  RUN --mount=type=cache,target=/root/.cache/pip \
-      pip install --upgrade pip && \
-      pip install -r requirements.txt
+# Python dependencies layer (changes only when requirements.txt changes)
+FROM system-deps as python-deps
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install -r requirements.txt
 
-  # Download NLTK data to system location (as root)
-  RUN python -c "import nltk; nltk.download('punkt_tab', download_dir='/usr/local/nltk_data', quiet=True)"
+# NLTK data layer (rarely changes)
+FROM python-deps as nltk-data
+RUN python -c "import nltk; nltk.download('punkt_tab', download_dir='/usr/local/nltk_data', quiet=True)"
 
-  # Copy application code
-  COPY . .
+# PyTorch models layer (rarely changes)
+FROM nltk-data as torch-models
+RUN mkdir -p /opt/torch && \
+    python -c "import torch; torch.hub.set_dir('/opt/torch'); torch.hub.load('snakers4/silero-vad', 'silero_vad', force_reload=True)"
 
-  # Create directories and download models
-  RUN mkdir -p logs recordings data
-  RUN python -c "import torch; torch.hub.load('snakers4/silero-vad', 'silero_vad', force_reload=True)"
+# Application layer (changes frequently)
+FROM torch-models as app
+WORKDIR /app
 
-  # Create non-root user and set permissions
-  RUN groupadd -r pipecat && useradd -r -g pipecat pipecat
-  RUN chown -R pipecat:pipecat /app
+# Create directories
+RUN mkdir -p logs recordings data
 
-  # Switch to non-root user
-  USER pipecat
+# Copy application code (most frequently changing layer)
+COPY . .
 
-  # Health check
-  HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-      CMD curl -f http://localhost:$PORT/health || exit 1
+# Create non-root user and set permissions
+RUN groupadd -r pipecat && useradd -r -g pipecat pipecat && \
+    chown -R pipecat:pipecat /app && \
+    chown -R pipecat:pipecat /opt/torch
 
-  EXPOSE $PORT
+# Switch to non-root user
+USER pipecat
 
-  # Command with all optimizations
-  CMD ["python", "-m", "uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--loop", "uvloop", "--backlog", "2048","--limit-concurrency", "10"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:$PORT/health || exit 1
+
+EXPOSE $PORT
+
+# Command with all optimizations
+CMD ["python", "-m", "uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--loop", "uvloop", "--backlog", "2048", "--limit-concurrency", "10"]
