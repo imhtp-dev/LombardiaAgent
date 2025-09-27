@@ -19,19 +19,25 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       pip install --upgrade pip && \
       pip install -r requirements.txt
 
-# Copy application code
-COPY . .
+# Download NLTK data as root (before switching users)
+RUN python -c "import nltk; nltk.download('punkt_tab', quiet=True)"
+
+  # Copy application code
+  COPY . .
 
 # Create directories and download models
 RUN mkdir -p logs recordings data
 RUN python -c "import torch; torch.hub.load('snakers4/silero-vad', 'silero_vad', force_reload=True)"
 
-# Security
+# Create non-root user and set permissions
 RUN groupadd -r pipecat && useradd -r -g pipecat pipecat
 RUN chown -R pipecat:pipecat /app
+RUN chown -R pipecat:pipecat /root/nltk_data 2>/dev/null || true
+
+# Switch to non-root user
 USER pipecat
 
-  # Health check
+# Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
       CMD curl -f http://localhost:$PORT/health || exit 1
 
