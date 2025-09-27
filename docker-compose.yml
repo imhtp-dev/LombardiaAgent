@@ -36,4 +36,4 @@ services:
 
 networks:
   pipecat-network:
-    driver: bridge2
+    driver: bridge
