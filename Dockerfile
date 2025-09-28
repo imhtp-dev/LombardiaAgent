@@ -16,11 +16,17 @@ RUN apt-get update && apt-get install -y \
     gcc g++ ffmpeg libsndfile1 portaudio19-dev python3-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Python dependencies layer (changes only when requirements.txt changes)
-FROM system-deps as python-deps
-COPY requirements.txt .
+# Base dependencies layer (stable, large libraries - rarely changes)
+FROM system-deps as base-deps
+COPY requirements-base.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
+    pip install -r requirements-base.txt
+
+# Development dependencies layer (small, changing libraries)
+FROM base-deps as python-deps
+COPY requirements.txt .
+RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
 # NLTK data layer (rarely changes)
