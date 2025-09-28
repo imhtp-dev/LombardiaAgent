@@ -6,6 +6,7 @@ from typing import Dict, Any, Tuple
 from loguru import logger
 
 from pipecat_flows import FlowManager, NodeConfig, FlowArgs
+from services.fiscal_code_generator import fiscal_code_generator
 
 
 async def start_email_collection_with_stt_switch(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -126,21 +127,24 @@ async def collect_email_and_transition(args: FlowArgs, flow_manager: FlowManager
 
 
 async def confirm_email_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Confirm email address and transition to fiscal code collection"""
+    """Confirm email address and transition to reminder authorization (skip fiscal code collection)"""
     action = args.get("action", "")
 
     if action == "confirm":
-        logger.info("✅ Email confirmed, proceeding to fiscal code collection")
+        logger.info("✅ Email confirmed, generating fiscal code and proceeding to reminder authorization")
 
         # Switch back to default transcription mode after email is confirmed
         from utils.stt_switcher import switch_to_default_transcription
         await switch_to_default_transcription()
 
-        from flows.nodes.patient_details import create_collect_fiscal_code_node
+        # Generate fiscal code from collected data
+        await generate_fiscal_code_from_state(flow_manager)
+
+        from flows.nodes.patient_details import create_collect_reminder_authorization_node
         return {
             "success": True,
-            "message": "Email confirmed"
-        }, create_collect_fiscal_code_node()
+            "message": "Email confirmed, fiscal code generated"
+        }, create_collect_reminder_authorization_node()
 
     elif action == "change":
         logger.info("🔄 Email needs to be changed, returning to email collection")
@@ -156,50 +160,44 @@ async def confirm_email_and_transition(args: FlowArgs, flow_manager: FlowManager
         return {"success": False, "message": "Please confirm if the email is correct or if you want to change it"}, None
 
 
-async def collect_fiscal_code_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Collect fiscal code and transition to fiscal code confirmation"""
-    fiscal_code = args.get("fiscal_code", "").strip().upper()
+async def generate_fiscal_code_from_state(flow_manager: FlowManager) -> None:
+    """Generate fiscal code from collected patient data in state"""
+    try:
+        # Extract patient data from state
+        patient_data = {
+            'name': flow_manager.state.get("patient_name", ""),
+            'surname': flow_manager.state.get("patient_surname", ""),
+            'birth_date': flow_manager.state.get("patient_dob", ""),
+            'gender': flow_manager.state.get("patient_gender", ""),
+            'birth_city': flow_manager.state.get("patient_birth_city", "")
+        }
 
-    if not fiscal_code or len(fiscal_code) != 16:
-        return {"success": False, "message": "Please provide a valid 16-character fiscal code"}, None
+        logger.info(f"🔧 Generating fiscal code from state data: {patient_data}")
 
-    # Store fiscal code in state
-    flow_manager.state["patient_fiscal_code"] = fiscal_code
+        # Generate fiscal code
+        result = fiscal_code_generator.generate_fiscal_code(patient_data)
 
-    logger.info(f"🆔 Fiscal code collected: {fiscal_code}")
+        if result["success"]:
+            fiscal_code = result["fiscal_code"]
+            flow_manager.state["generated_fiscal_code"] = fiscal_code
+            flow_manager.state["fiscal_code_generation_data"] = result
 
-    from flows.nodes.patient_details import create_confirm_fiscal_code_node
-    return {
-        "success": True,
-        "fiscal_code": fiscal_code,
-        "message": "Fiscal code collected successfully"
-    }, create_confirm_fiscal_code_node(fiscal_code)
+            logger.success(f"✅ Fiscal code generated and stored: {fiscal_code}")
+            logger.info(f"📍 Matched city: {result.get('matched_city')} "
+                       f"(similarity: {result.get('similarity_score')}%)")
+        else:
+            error_msg = result.get("error", "Unknown error")
+            logger.error(f"❌ Fiscal code generation failed: {error_msg}")
 
+            # Store error for potential debugging
+            flow_manager.state["fiscal_code_error"] = error_msg
+            if "suggestions" in result:
+                flow_manager.state["city_suggestions"] = result["suggestions"]
 
-async def confirm_fiscal_code_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Confirm fiscal code and transition to reminder authorization"""
-    action = args.get("action", "")
+    except Exception as e:
+        logger.error(f"❌ Error in fiscal code generation: {e}")
+        flow_manager.state["fiscal_code_error"] = str(e)
 
-    if action == "confirm":
-        logger.info("✅ Fiscal code confirmed, proceeding to reminder authorization")
-
-        from flows.nodes.patient_details import create_collect_reminder_authorization_node
-        return {
-            "success": True,
-            "message": "Fiscal code confirmed"
-        }, create_collect_reminder_authorization_node()
-
-    elif action == "change":
-        logger.info("🔄 Fiscal code needs to be changed, returning to fiscal code collection")
-
-        from flows.nodes.patient_details import create_collect_fiscal_code_node
-        return {
-            "success": False,
-            "message": "Let's collect your fiscal code again"
-        }, create_collect_fiscal_code_node()
-
-    else:
-        return {"success": False, "message": "Please confirm if the fiscal code is correct or if you want to change it"}, None
 
 
 async def collect_reminder_authorization_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -228,13 +226,13 @@ async def collect_marketing_authorization_and_transition(args: FlowArgs, flow_ma
 
     logger.info(f"📢 Marketing authorization: {'Yes' if marketing_auth else 'No'}")
 
-    # Prepare patient details for confirmation
+    # Prepare patient details for confirmation (no fiscal code shown - it's generated silently)
     patient_details = {
         "name": flow_manager.state.get("patient_name", ""),
         "surname": flow_manager.state.get("patient_surname", ""),
         "phone": flow_manager.state.get("patient_phone", ""),
-        "email": flow_manager.state.get("patient_email", ""),
-        "fiscal_code": flow_manager.state.get("patient_fiscal_code", "")
+        "email": flow_manager.state.get("patient_email", "")
+        # Note: fiscal_code is generated and stored but not shown to patient
     }
 
     from flows.nodes.patient_details import create_confirm_patient_details_node
@@ -267,7 +265,7 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
     patient_surname = flow_manager.state.get("patient_surname", "")
     patient_phone = flow_manager.state.get("patient_phone", "")
     patient_email = flow_manager.state.get("patient_email", "")
-    patient_fiscal_code = flow_manager.state.get("patient_fiscal_code", "")
+    patient_fiscal_code = flow_manager.state.get("generated_fiscal_code", "")
     patient_gender = flow_manager.state.get("patient_gender", "m")
     patient_dob = flow_manager.state.get("patient_dob", "")
     reminder_auth = flow_manager.state.get("reminder_authorization", False)

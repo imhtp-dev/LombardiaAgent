@@ -62,6 +62,9 @@ from config.settings import settings
 from services.config import config
 from pipeline.components import create_stt_service, create_tts_service, create_llm_service, create_context_aggregator
 
+# Import transcript manager for conversation recording and call data extraction
+from services.transcript_manager import transcript_manager
+
 load_dotenv(override=True)
 
 # ================================================================================
@@ -356,6 +359,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 }
             }
 
+            # Start transcript recording session
+            transcript_manager.start_session(session_id)
+            logger.info(f"📝 Started transcript recording for session: {session_id}")
+
             # Initialize flow manager (FROM BOT.PY)
             try:
                 await initialize_flow_manager(flow_manager, start_node)
@@ -367,6 +374,20 @@ async def websocket_endpoint(websocket: WebSocket):
         async def on_client_disconnected(transport_obj, ws):
             logger.info(f"🔌 Healthcare Flow Client disconnected: {session_id}")
 
+            # Extract and store call data before cleanup
+            try:
+                logger.info(f"📊 Extracting call data for session: {session_id}")
+                success = await transcript_manager.extract_and_store_call_data(flow_manager)
+                if success:
+                    logger.success(f"✅ Call data extracted and stored successfully for session: {session_id}")
+                else:
+                    logger.error(f"❌ Failed to extract call data for session: {session_id}")
+            except Exception as e:
+                logger.error(f"❌ Error during call data extraction: {e}")
+
+            # Clear transcript session
+            transcript_manager.clear_session()
+
             # Cleanup (COPIED FROM APP.PY)
             if session_id in active_sessions:
                 del active_sessions[session_id]
@@ -376,6 +397,20 @@ async def websocket_endpoint(websocket: WebSocket):
         @transport.event_handler("on_session_timeout")
         async def on_session_timeout(transport_obj, ws):
             logger.warning(f"⏱️ Session timeout: {session_id}")
+
+            # Extract and store call data before cleanup (even on timeout)
+            try:
+                logger.info(f"📊 Extracting call data for timed-out session: {session_id}")
+                success = await transcript_manager.extract_and_store_call_data(flow_manager)
+                if success:
+                    logger.success(f"✅ Call data extracted and stored for timed-out session: {session_id}")
+                else:
+                    logger.error(f"❌ Failed to extract call data for timed-out session: {session_id}")
+            except Exception as e:
+                logger.error(f"❌ Error during timeout call data extraction: {e}")
+
+            # Clear transcript session
+            transcript_manager.clear_session()
 
             # Cleanup (COPIED FROM APP.PY)
             if session_id in active_sessions:
@@ -396,6 +431,9 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.info(f"   Length: {len(transcription)} characters")
             logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+            # Record user message in transcript
+            transcript_manager.add_user_message(transcription)
+
         @stt.event_handler("on_interim_transcription")
         async def on_interim_transcription(stt_service, transcription):
             """Handler for interim transcriptions during speech"""
@@ -405,6 +443,23 @@ async def websocket_endpoint(websocket: WebSocket):
         async def on_stt_error(stt_service, error):
             """Handler for transcription errors"""
             logger.error(f"❌ DEEPGRAM STT ERROR: {error}")
+
+        # ============================================
+        # TTS EVENT HANDLERS FOR TRANSCRIPT RECORDING
+        # ============================================
+
+        @tts.event_handler("on_tts_started")
+        async def on_tts_started(tts_service, text):
+            """Handler for when TTS starts speaking text"""
+            logger.debug(f"🔊 TTS started: '{text[:100]}{'...' if len(text) > 100 else ''}'")
+
+            # Record assistant message in transcript
+            transcript_manager.add_assistant_message(text)
+
+        @tts.event_handler("on_tts_error")
+        async def on_tts_error(tts_service, error):
+            """Handler for TTS errors"""
+            logger.error(f"❌ ELEVENLABS TTS ERROR: {error}")
 
         # ============================================
         # START PIPELINE (COPIED FROM APP.PY)

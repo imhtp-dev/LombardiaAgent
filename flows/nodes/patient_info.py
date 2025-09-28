@@ -7,6 +7,7 @@ from flows.handlers.patient_handlers import (
     collect_address_and_transition,
     collect_gender_and_transition,
     collect_dob_and_transition,
+    collect_birth_city_and_transition,
     verify_basic_info_and_transition
 )
 
@@ -98,8 +99,37 @@ def create_collect_dob_node() -> NodeConfig:
     )
 
 
-def create_verify_basic_info_node(address: str, gender: str, dob: str) -> NodeConfig:
-    """Create verification node for address, gender, and DOB"""
+def create_collect_birth_city_node() -> NodeConfig:
+    """Create birth city collection node"""
+    return NodeConfig(
+        name="collect_birth_city",
+        role_messages=[{
+            "role": "system",
+            "content": "Raccogli la città di nascita del paziente per la generazione del codice fiscale. È importante ottenere il nome completo e corretto della città."
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": "In quale città sei nato/a? Per favore dimmi il nome completo della città di nascita."
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="collect_birth_city",
+                handler=collect_birth_city_and_transition,
+                description="Raccogli la città di nascita del paziente",
+                properties={
+                    "birth_city": {
+                        "type": "string",
+                        "description": "Città di nascita del paziente"
+                    }
+                },
+                required=["birth_city"]
+            )
+        ]
+    )
+
+
+def create_verify_basic_info_node(address: str, gender: str, dob: str, birth_city: str) -> NodeConfig:
+    """Create verification node for address, gender, DOB, and birth city"""
     gender_display = "Male" if gender.lower() == "m" else "Female" if gender.lower() == "f" else gender
 
     verification_text = f"""Verifica le informazioni che ho raccolto:
@@ -107,6 +137,7 @@ def create_verify_basic_info_node(address: str, gender: str, dob: str) -> NodeCo
 Indirizzo: {address}
 Sesso: {gender_display}
 Data di nascita: {dob}
+Città di nascita: {birth_city}
 
 Questi dati sono corretti? Rispondi "sì" se sono corretti, oppure indicami cosa deve essere modificato."""
 
@@ -133,7 +164,7 @@ Questi dati sono corretti? Rispondi "sì" se sono corretti, oppure indicami cosa
                     },
                     "field_to_change": {
                         "type": "string",
-                        "enum": ["address", "gender", "date_of_birth"],
+                        "enum": ["address", "gender", "date_of_birth", "birth_city"],
                         "description": "Which field to change (only if action is 'change')"
                     },
                     "new_value": {
