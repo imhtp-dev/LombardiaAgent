@@ -176,11 +176,26 @@ Summary (in Italian, max 200 words):"""
                 "email": flow_manager.state.get("patient_email", "")
             }
 
-            # Extract booking data if available
+            # Extract booking data if available (serialize HealthService objects)
+            selected_services = flow_manager.state.get("selected_services", [])
+            serialized_services = []
+            for service in selected_services:
+                if hasattr(service, '__dict__'):
+                    # Serialize HealthService object to dict
+                    serialized_services.append({
+                        "uuid": getattr(service, 'uuid', ''),
+                        "name": getattr(service, 'name', ''),
+                        "description": getattr(service, 'description', ''),
+                        "price": getattr(service, 'price', 0),
+                        "duration": getattr(service, 'duration', 0)
+                    })
+                else:
+                    serialized_services.append(service)
+
             booking_data = {
                 "booking_code": flow_manager.state.get("final_booking", {}).get("code", ""),
                 "booking_uuid": flow_manager.state.get("final_booking", {}).get("uuid", ""),
-                "selected_services": flow_manager.state.get("selected_services", []),
+                "selected_services": serialized_services,
                 "booked_slots": flow_manager.state.get("booked_slots", [])
             }
 
