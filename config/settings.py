@@ -21,8 +21,7 @@ class Settings:
         return {
             "deepgram": os.getenv("DEEPGRAM_API_KEY"),
             "elevenlabs": os.getenv("ELEVENLABS_API_KEY"),
-            "openai": os.getenv("OPENAI_API_KEY"),
-            "daily": os.getenv("DAILY_API_KEY")
+            "openai": os.getenv("OPENAI_API_KEY")
         }
     
     @property
@@ -65,30 +64,7 @@ class Settings:
             "model": "gpt-4.1-mini"
         }
     
-    @property
-    def daily_config(self) -> Dict[str, Any]:
-        """Daily transport configuration"""
-        return {
-            "api_key": self.api_keys["daily"],
-            "room_properties": {
-                "enable_prejoin_ui": False,
-                "enable_screenshare": False,
-                "enable_chat": False,
-                "start_video_off": True,
-                "start_audio_off": False
-            },
-            "params": {
-                "audio_in_enabled": True,
-                "audio_out_enabled": True,
-                "transcription_enabled": False,
-                "audio_in_sample_rate": 16000,
-                "audio_out_sample_rate": 16000,
-                "camera_enabled": False,
-                "mic_enabled": True,
-                "dial_in_timeout": 15.0,
-                "connection_timeout": 10.0
-            }
-        }
+
     
     @property
     def vad_config(self) -> Dict[str, Any]:
@@ -113,8 +89,7 @@ class Settings:
         required_keys = [
             ("DEEPGRAM_API_KEY", "Deepgram"),
             ("ELEVENLABS_API_KEY", "ElevenLabs"), 
-            ("OPENAI_API_KEY", "OpenAI"),
-            ("DAILY_API_KEY", "Daily")
+            ("OPENAI_API_KEY", "OpenAI")
         ]
         
         missing_keys = []
