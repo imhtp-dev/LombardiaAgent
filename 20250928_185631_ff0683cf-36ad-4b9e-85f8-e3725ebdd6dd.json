@@ -1,0 +1,40 @@
+{
+  "session_id": "ff0683cf-36ad-4b9e-85f8-e3725ebdd6dd",
+  "timestamp": "2025-09-28T18:56:31.582631",
+  "call_start_time": "2025-09-28T18:55:33.959965",
+  "call_duration_seconds": 57,
+  "fiscal_code": "",
+  "fiscal_code_generation_data": {},
+  "fiscal_code_error": "",
+  "patient_data": {
+    "name": "",
+    "surname": "",
+    "birth_date": "",
+    "gender": "",
+    "birth_city": "",
+    "address": "",
+    "phone": "",
+    "email": ""
+  },
+  "booking_data": {
+    "booking_code": "",
+    "booking_uuid": "",
+    "selected_services": [
+      {
+        "uuid": "15e3d737-ac3b-4350-a0a1-28745851a688",
+        "name": "RX del Ginocchio Destro ",
+        "description": "",
+        "price": 0,
+        "duration": 0
+      }
+    ],
+    "booked_slots": []
+  },
+  "transcript": [],
+  "summary": "No conversation to summarize.",
+  "total_messages": 0,
+  "user_messages": 0,
+  "assistant_messages": 0,
+  "reminder_authorization": false,
+  "marketing_authorization": false
+}

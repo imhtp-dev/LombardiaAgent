@@ -281,7 +281,7 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
 
     try:
         # Make agent speak during booking creation
-        booking_status_text = "Creating your booking with all the provided details. Please wait..."
+        booking_status_text = "Creazione della prenotazione con tutti i dettagli forniti. Attendi..."
 
         from pipecat.frames.frames import TTSSpeakFrame
         if flow_manager.task:

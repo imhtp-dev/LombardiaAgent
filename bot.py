@@ -362,6 +362,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Start transcript recording session
             transcript_manager.start_session(session_id)
             logger.info(f"📝 Started transcript recording for session: {session_id}")
+            logger.info(f"📊 Transcript manager initialized with {len(transcript_manager.conversation_log)} messages")
 
             # Initialize flow manager (FROM BOT.PY)
             try:
@@ -432,7 +433,9 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             # Record user message in transcript
+            logger.info(f"📝 Recording user message in transcript: '{transcription[:50]}{'...' if len(transcription) > 50 else ''}'")
             transcript_manager.add_user_message(transcription)
+            logger.info(f"📊 Transcript now has {len(transcript_manager.conversation_log)} messages")
 
         @stt.event_handler("on_interim_transcription")
         async def on_interim_transcription(stt_service, transcription):
@@ -454,7 +457,9 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.debug(f"🔊 TTS started: '{text[:100]}{'...' if len(text) > 100 else ''}'")
 
             # Record assistant message in transcript
+            logger.info(f"📝 Recording assistant message in transcript: '{text[:50]}{'...' if len(text) > 50 else ''}'")
             transcript_manager.add_assistant_message(text)
+            logger.info(f"📊 Transcript now has {len(transcript_manager.conversation_log)} messages")
 
         @tts.event_handler("on_tts_error")
         async def on_tts_error(tts_service, error):

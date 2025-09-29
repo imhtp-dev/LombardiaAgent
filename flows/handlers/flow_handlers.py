@@ -34,7 +34,7 @@ async def generate_flow_and_transition(args: FlowArgs, flow_manager: FlowManager
         primary_service = selected_services[0]
         
         # Make agent speak during flow generation
-        flow_generation_status_text = f"I'm analyzing {primary_service.name} To determine if there are any special requirements or additional options. Please wait..."
+        flow_generation_status_text = f"Sto analizzando {primary_service.name} per determinare se ci sono requisiti speciali o opzioni aggiuntive. Attendi..."
         
         # Push TTSSpeakFrame to make agent speak immediately
         from pipecat.frames.frames import TTSSpeakFrame

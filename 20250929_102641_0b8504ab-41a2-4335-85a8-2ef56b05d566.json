@@ -1,0 +1,48 @@
+{
+  "session_id": "0b8504ab-41a2-4335-85a8-2ef56b05d566",
+  "timestamp": "2025-09-29T10:26:41.894869",
+  "call_start_time": "2025-09-29T10:20:12.708804",
+  "call_duration_seconds": 389,
+  "fiscal_code": "",
+  "fiscal_code_generation_data": {},
+  "fiscal_code_error": "",
+  "patient_data": {
+    "name": "Rudy",
+    "surname": "Crapella",
+    "birth_date": "1980-04-13",
+    "gender": "m",
+    "birth_city": "Busto Arsizio",
+    "address": "Milano Via Durini",
+    "phone": "",
+    "email": ""
+  },
+  "booking_data": {
+    "booking_code": "",
+    "booking_uuid": "",
+    "selected_services": [
+      {
+        "uuid": "7d94b398-50a1-4050-a2d3-874d9fa5e3b1",
+        "name": "RM Spalla Sinistra Senza contrasto",
+        "description": "",
+        "price": 0,
+        "duration": 0
+      }
+    ],
+    "booked_slots": [
+      {
+        "slot_uuid": "65ed74e7-d396-480a-b9e3-58021f819b92",
+        "service_name": "RM Spalla Sinistra Senza contrasto",
+        "start_time": "2025-10-10T15:30:00+00:00",
+        "end_time": "2025-10-10T15:45:00+00:00",
+        "price": 220
+      }
+    ]
+  },
+  "transcript": [],
+  "summary": "No conversation to summarize.",
+  "total_messages": 0,
+  "user_messages": 0,
+  "assistant_messages": 0,
+  "reminder_authorization": false,
+  "marketing_authorization": false
+}
