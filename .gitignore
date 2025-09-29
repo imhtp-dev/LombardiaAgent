@@ -115,3 +115,25 @@ id_rsa*
 id_ed25519*
 *.ssh
 voilavoicebookingvm_key*
+
+# Large data files
+city_codes.json
+
+# Call data and transcripts (stored in Azure)
+*.json
+!package.json
+!requirements*.txt
+
+# Docker and deployment
+docker-compose.override.yml
+.docker/
+
+# Additional folders to ignore
+data/
+temp/
+tmp/
+cache/
+.cache/
+
+# Azure Storage local files
+20*_*.json
