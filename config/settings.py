@@ -1,7 +1,3 @@
-"""
-Configuration settings for Healthcare Flow Bot
-"""
-
 import os
 from typing import Dict, Any
 from dotenv import load_dotenv

@@ -1,8 +1,3 @@
-"""
-Healthcare Flow Bot - Using Working app.py WebSocket Transport with bot.py Flows
-EXACT COPY of app.py WebSocket implementation but with bot.py flow management
-"""
-
 import os
 import re
 import asyncio
@@ -18,12 +13,12 @@ from loguru import logger
 logging.getLogger("deepgram").setLevel(logging.DEBUG)
 logging.getLogger("websockets").setLevel(logging.DEBUG)
 
-# FastAPI (COPIED FROM APP.PY)
+# FastAPI
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-# Core Pipecat imports (COPIED FROM APP.PY)
+# Core Pipecat imports
 from pipecat.frames.frames import (
     TranscriptionFrame,
     InterimTranscriptionFrame,
@@ -33,6 +28,7 @@ from pipecat.frames.frames import (
     InputAudioRawFrame,
     OutputAudioRawFrame
 )
+from pipecat.processors.transcript_processor import TranscriptProcessor
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -42,22 +38,19 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 
-# EXACT SAME IMPORT AS APP.PY (this is what works with your bridge)
 from pipecat.transports.network.fastapi_websocket import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
 
-# VAD (COPIED FROM APP.PY)
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 
-# Serializer imports (COPIED FROM APP.PY)
+# Serializer imports 
 from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
 
-# Import flow management from bot.py
+# Import flow management
 from flows.manager import create_flow_manager, initialize_flow_manager
 
-# Import components from bot.py
 from config.settings import settings
 from services.config import config
 from pipeline.components import create_stt_service, create_tts_service, create_llm_service, create_context_aggregator
@@ -67,10 +60,7 @@ from services.transcript_manager import transcript_manager
 
 load_dotenv(override=True)
 
-# ================================================================================
-# SIMPLE PCM SERIALIZER (COPIED FROM APP.PY)
-# ================================================================================
-
+# SIMPLE PCM SERIALIZER
 class RawPCMSerializer(FrameSerializer):
     """
     Simple serializer for PCM raw (EXACTLY LIKE APP.PY)
@@ -96,9 +86,7 @@ class RawPCMSerializer(FrameSerializer):
             )
         return None
 
-# ================================================================================
-# FASTAPI APP (COPIED FROM APP.PY)
-# ================================================================================
+# FASTAPI APP 
 
 app = FastAPI(
     title="Healthcare Flow Bot with Working WebSocket",
@@ -106,7 +94,7 @@ app = FastAPI(
     version="5.0.0"
 )
 
-# CORS configuration (COPIED FROM APP.PY)
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -115,12 +103,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Store for active sessions (COPIED FROM APP.PY)
+# Store for active sessions
 active_sessions: Dict[str, Any] = {}
 
-# ================================================================================
-# HOMEPAGE (COPIED FROM APP.PY)
-# ================================================================================
+# HOMEPAGE 
 
 @app.get("/")
 async def root():
@@ -206,10 +192,7 @@ async def health_check():
         }
     })
 
-# ================================================================================
-# MAIN WEBSOCKET ENDPOINT (USING APP.PY STRUCTURE WITH BOT.PY FLOWS)
-# ================================================================================
-
+# MAIN WEBSOCKET ENDPOINT
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -218,7 +201,7 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     await websocket.accept()
 
-    # Extract parameters from query string (COPIED FROM APP.PY)
+    # Extract parameters from query string
     query_params = dict(websocket.query_params)
     business_status = query_params.get("business_status", "open")
     session_id = query_params.get("session_id", f"session-{len(active_sessions)}")
@@ -231,12 +214,12 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"Start Node: {start_node}")
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-    # Variables for pipeline (COPIED FROM APP.PY)
+    # Variables for pipeline
     runner = None
     task = None
 
     try:
-        # Check required API keys (COPIED FROM APP.PY)
+        # Check required API keys
         required_keys = [
             ("DEEPGRAM_API_KEY", "Deepgram"),
             ("ELEVENLABS_API_KEY", "ElevenLabs"),
@@ -247,7 +230,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if not os.getenv(key_name):
                 raise Exception(f"{key_name} not found - required for {service_name}")
 
-        # Validate health service configuration (FROM BOT.PY)
+        # Validate health service configuration
         try:
             config.validate()
             logger.success("✅ Health services configuration validated")
@@ -255,7 +238,7 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.error(f"❌ Health services configuration error: {e}")
             raise
 
-        # CREATE TRANSPORT EXACTLY LIKE APP.PY
+        # CREATE TRANSPORT
         transport = FastAPIWebsocketTransport(
             websocket=websocket,
             params=FastAPIWebsocketParams(
@@ -269,7 +252,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         min_volume=0.2     # Reduced from 0.4 - more sensitive to quiet speech
                     )
                 ),
-                serializer=RawPCMSerializer(),  # EXACT SAME AS APP.PY
+                serializer=RawPCMSerializer(),
                 session_timeout=900,
             )
         )
@@ -278,50 +261,56 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Initializing services...")
         stt = create_stt_service()
 
-        # ADD DEEPGRAM WEBSOCKET EVENT HANDLERS FOR DEBUGGING
-        logger.debug("🔍 Setting up Deepgram WebSocket event handlers...")
-
-        @stt.event_handler("on_connection_opened")
-        async def on_deepgram_open():
-            logger.success("✅ Deepgram WebSocket connection opened")
-
-        @stt.event_handler("on_connection_closed")
-        async def on_deepgram_close():
-            logger.warning("⚠️ Deepgram WebSocket connection closed")
-
-        @stt.event_handler("on_connection_error")
-        async def on_deepgram_error(error):
-            logger.error(f"❌ Deepgram WebSocket error: {error}")
-            logger.error(f"❌ Error type: {type(error)}")
-            logger.error(f"❌ Error details: {str(error)}")
-
         tts = create_tts_service()
         llm = create_llm_service()
         context_aggregator = create_context_aggregator(llm)
 
+        # CREATE TRANSCRIPT PROCESSOR FOR RECORDING CONVERSATIONS
+        transcript_processor = TranscriptProcessor()
+
+        # Setup transcript recording event handler
+        @transcript_processor.event_handler("on_transcript_update")
+        async def on_transcript_update(processor, frame):
+            """Handle transcript updates from TranscriptProcessor"""
+            logger.info(f"📝 Transcript update received with {len(frame.messages)} messages")
+
+            for message in frame.messages:
+                logger.info(f"📝 Recording {message.role} message: '{message.content[:50]}{'...' if len(message.content) > 50 else ''}'")
+
+                if message.role == "user":
+                    transcript_manager.add_user_message(message.content)
+                elif message.role == "assistant":
+                    transcript_manager.add_assistant_message(message.content)
+
+            logger.info(f"📊 Transcript now has {len(transcript_manager.conversation_log)} messages")
+
         logger.info("✅ All services initialized")
 
-        # CREATE PIPELINE (SIMPLE LIKE APP.PY)
+        # CREATE PIPELINE WITH TRANSCRIPT PROCESSORS
         pipeline = Pipeline([
             transport.input(),
             stt,
+            transcript_processor.user(),  # Capture user transcriptions
             context_aggregator.user(),
             llm,
             tts,
             transport.output(),
+            transcript_processor.assistant(),  # Capture assistant responses
             context_aggregator.assistant()
         ])
 
         logger.info("Healthcare Flow Pipeline structure:")
         logger.info("  1. Input (PCM from bridge)")
         logger.info("  2. Deepgram STT")
-        logger.info("  3. Context Aggregator (User)")
-        logger.info("  4. OpenAI LLM (with flows)")
-        logger.info("  5. ElevenLabs TTS")
-        logger.info("  6. Output (PCM to bridge)")
-        logger.info("  7. Context Aggregator (Assistant)")
+        logger.info("  3. TranscriptProcessor.user() - Capture user transcriptions")
+        logger.info("  4. Context Aggregator (User)")
+        logger.info("  5. OpenAI LLM (with flows)")
+        logger.info("  6. ElevenLabs TTS")
+        logger.info("  7. Output (PCM to bridge)")
+        logger.info("  8. TranscriptProcessor.assistant() - Capture assistant responses")
+        logger.info("  9. Context Aggregator (Assistant)")
 
-        # Create pipeline task (COPIED FROM APP.PY)
+        # Create pipeline task
         task = PipelineTask(
             pipeline,
             params=PipelineParams(
@@ -332,17 +321,14 @@ async def websocket_endpoint(websocket: WebSocket):
             )
         )
 
-        # CREATE FLOW MANAGER (FROM BOT.PY)
+        # CREATE FLOW MANAGER
         flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
 
-        # Initialize STT switcher for dynamic transcription (FROM BOT.PY)
+        # Initialize STT switcher for dynamic transcription
         from utils.stt_switcher import initialize_stt_switcher
         initialize_stt_switcher(stt, flow_manager)
 
-        # ============================================
-        # EVENT HANDLERS (COPIED FROM APP.PY STRUCTURE)
-        # ============================================
-
+        # EVENT HANDLERS 
         # Transport event handlers
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport_obj, ws):
@@ -364,7 +350,7 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.info(f"📝 Started transcript recording for session: {session_id}")
             logger.info(f"📊 Transcript manager initialized with {len(transcript_manager.conversation_log)} messages")
 
-            # Initialize flow manager (FROM BOT.PY)
+            # Initialize flow manager
             try:
                 await initialize_flow_manager(flow_manager, start_node)
                 logger.success(f"✅ Flow initialized with {start_node} node")
@@ -389,7 +375,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Clear transcript session
             transcript_manager.clear_session()
 
-            # Cleanup (COPIED FROM APP.PY)
+            # Cleanup
             if session_id in active_sessions:
                 del active_sessions[session_id]
 
@@ -413,69 +399,14 @@ async def websocket_endpoint(websocket: WebSocket):
             # Clear transcript session
             transcript_manager.clear_session()
 
-            # Cleanup (COPIED FROM APP.PY)
+            # Cleanup
             if session_id in active_sessions:
                 del active_sessions[session_id]
 
             await task.cancel()
 
-        # ============================================
-        # STT EVENT HANDLERS (COPIED FROM APP.PY)
-        # ============================================
-
-        @stt.event_handler("on_transcription")
-        async def on_transcription(stt_service, transcription):
-            """Handler for final transcribed text"""
-            logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            logger.info(f"🎤 HEALTHCARE FLOW TRANSCRIPTION:")
-            logger.info(f"   Text: '{transcription}'")
-            logger.info(f"   Length: {len(transcription)} characters")
-            logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-            # Record user message in transcript
-            logger.info(f"📝 Recording user message in transcript: '{transcription[:50]}{'...' if len(transcription) > 50 else ''}'")
-            transcript_manager.add_user_message(transcription)
-            logger.info(f"📊 Transcript now has {len(transcript_manager.conversation_log)} messages")
-
-        @stt.event_handler("on_interim_transcription")
-        async def on_interim_transcription(stt_service, transcription):
-            """Handler for interim transcriptions during speech"""
-            logger.debug(f"📝 [INTERIM] Healthcare flow transcription: '{transcription}'")
-
-        @stt.event_handler("on_error")
-        async def on_stt_error(stt_service, error):
-            """Handler for transcription errors"""
-            logger.error(f"❌ DEEPGRAM STT ERROR: {error}")
-
-        # ============================================
-        # TTS EVENT HANDLERS FOR TRANSCRIPT RECORDING
-        # ============================================
-
-        @tts.event_handler("on_tts_started")
-        async def on_tts_started(tts_service, text):
-            """Handler for when TTS starts speaking text"""
-            logger.debug(f"🔊 TTS started: '{text[:100]}{'...' if len(text) > 100 else ''}'")
-
-            # Record assistant message in transcript
-            logger.info(f"📝 Recording assistant message in transcript: '{text[:50]}{'...' if len(text) > 50 else ''}'")
-            transcript_manager.add_assistant_message(text)
-            logger.info(f"📊 Transcript now has {len(transcript_manager.conversation_log)} messages")
-
-        @tts.event_handler("on_tts_error")
-        async def on_tts_error(tts_service, error):
-            """Handler for TTS errors"""
-            logger.error(f"❌ ELEVENLABS TTS ERROR: {error}")
-
-        # ============================================
-        # START PIPELINE (COPIED FROM APP.PY)
-        # ============================================
-
-        # Start pipeline
+        # START PIPELINE
         runner = PipelineRunner()
-
-        # ADD DEEPGRAM CONNECTION DEBUGGING
-        logger.debug("🔍 About to start pipeline - this will trigger Deepgram WebSocket connection...")
-        logger.debug(f"🔍 STT service type: {type(stt)}")
 
         logger.info(f"🚀 Healthcare Flow Pipeline started for session: {session_id}")
         logger.info(f"🏥 Intelligent conversation flows ACTIVE")

@@ -137,3 +137,9 @@ cache/
 
 # Azure Storage local files
 20*_*.json
+
+# Claude workspace files
+.claude/
+
+# Extra folders that shouldn't be committed
+extra/

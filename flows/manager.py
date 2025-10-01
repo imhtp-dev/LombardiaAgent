@@ -1,7 +1,3 @@
-"""
-FlowManager setup and initialization
-"""
-
 from pipecat_flows import FlowManager
 from pipecat.pipeline.task import PipelineTask
 from pipecat.services.openai.llm import OpenAILLMService
