@@ -1,6 +1,6 @@
 services:
   pipecat-agent:
-    build: .
+    image: rudyimhtpdev/voicebooking_piemo1:latest
     ports:
       - "8000:8000"
     environment:
