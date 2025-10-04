@@ -7,6 +7,7 @@ from typing import List, Dict
 from pipecat_flows import NodeConfig, FlowsFunctionSchema
 
 from flows.handlers.service_handlers import search_health_services_and_transition
+from config.settings import settings
 
 
 def create_booking_success_final_node(booking_info: Dict, selected_services: List, booked_slots: List[Dict]) -> NodeConfig:
@@ -38,7 +39,7 @@ def create_booking_success_final_node(booking_info: Dict, selected_services: Lis
         price = slot.get('price', 0)
         total_price += price
 
-        slots_details.append(f"• {service_name} il {formatted_date} dalle {start_time} alle {end_time} - {int(price)} euro")
+        slots_details.append(f"• {service_name} on {formatted_date} from {start_time} to {end_time} - {int(price)} euros")
 
     # Create confirmation message
     if creation_date:
@@ -50,27 +51,27 @@ def create_booking_success_final_node(booking_info: Dict, selected_services: Lis
     else:
         created_date = datetime.now().strftime("%d %B %Y at %-H:%M")
 
-    task_content = f"""🎉 Eccellente! La tua prenotazione è stata creata con successo!
+    task_content = f"""🎉 Excellent! Your booking has been created successfully!
 
-**Dettagli Prenotazione:**
-• Codice Prenotazione: **{booking_code}**
-• ID Prenotazione: {booking_uuid}
-• Creata: {created_date}
+**Booking Details:**
+• Booking Code: **{booking_code}**
+• Booking ID: {booking_uuid}
+• Created: {created_date}
 
-**I Tuoi Appuntamenti:**
+**Your Appointments:**
 {chr(10).join(slots_details)}
 
-**Costo Totale: {int(total_price)} euro**
+**Total Cost: {int(total_price)} euros**
 
-Riceverai un'email di conferma con tutti i dettagli. Grazie per aver scelto Cerba Healthcare!
+You will receive a confirmation email with all the details. Thank you for choosing Cerba Healthcare!
 
-C'è qualcos'altro con cui posso aiutarti oggi?"""
+Is there anything else I can help you with today?"""
 
     return NodeConfig(
         name="booking_success_final",
         role_messages=[{
             "role": "system",
-            "content": "Celebra il completamento della prenotazione con calore e professionalità. Di' sempre 'euro' invece di usare il simbolo €. Parla naturalmente come un assistente amichevole."
+            "content": f"Celebrate the completion of the booking with warmth and professionalism. Always say 'euros' instead of using the € symbol. Speak naturally like a friendly assistant. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -80,11 +81,11 @@ C'è qualcos'altro con cui posso aiutarti oggi?"""
             FlowsFunctionSchema(
                 name="start_new_booking",
                 handler=search_health_services_and_transition,
-                description="Inizia un nuovo processo di prenotazione",
+                description="Start a new booking process",
                 properties={
                     "search_term": {
                         "type": "string",
-                        "description": "Nome del servizio da cercare per una nuova prenotazione"
+                        "description": "Name of the service to search for a new booking"
                     }
                 },
                 required=["search_term"]

@@ -16,17 +16,39 @@ async def search_health_services_and_transition(args: FlowArgs, flow_manager: Fl
     try:
         search_term = args.get("search_term", "").strip()
         limit = min(args.get("limit", 3), 5)
-        
+
         logger.info(f"🔍 Flow searching health services: '{search_term}' (limit: {limit})")
-        
-        # Make agent speak during health service search
+
+        # Store search parameters in flow state for the search node
+        flow_manager.state["pending_search_term"] = search_term
+        flow_manager.state["pending_search_limit"] = limit
+
+        # Create intermediate node with pre_actions for immediate TTS
         search_status_text = f"Sto cercando servizi correlati a {search_term}. Attendi..."
-        
-        # Push TTSSpeakFrame to make agent speak immediately
-        from pipecat.frames.frames import TTSSpeakFrame
-        if flow_manager.task:
-            await flow_manager.task.queue_frames([TTSSpeakFrame(text=search_status_text)])
-        
+
+        from flows.nodes.service_selection import create_search_processing_node
+        return {
+            "success": True,
+            "message": f"Starting search for '{search_term}'"
+        }, create_search_processing_node(search_term, limit, search_status_text)
+
+    except Exception as e:
+        logger.error(f"Flow service search initialization error: {e}")
+        from flows.nodes.service_selection import create_search_retry_node
+        return {
+            "success": False,
+            "message": "Service search failed. Please try again.",
+            "services": []
+        }, create_search_retry_node("Service search failed. Please try again.")
+
+
+async def perform_health_services_search_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Perform the actual health services search after TTS message"""
+    try:
+        # Get stored search parameters
+        search_term = flow_manager.state.get("pending_search_term", "").strip()
+        limit = flow_manager.state.get("pending_search_limit", 3)
+
         if not search_term or len(search_term) < 2:
             # Import node creator function
             from flows.nodes.service_selection import create_search_retry_node
@@ -35,10 +57,11 @@ async def search_health_services_and_transition(args: FlowArgs, flow_manager: Fl
                 "message": "Please provide the name of a service to search for.",
                 "services": []
             }, create_search_retry_node("Please provide the name of a service to search for.")
-        
-        # Use fuzzy search service
+
+        # Use fuzzy search service - this is the actual API call that takes time
         search_result = fuzzy_search_service.search_services(search_term, limit)
         print(search_result)
+
         if search_result.found and search_result.services:
             # Store services in flow state
             flow_manager.state["services_found"] = search_result.services

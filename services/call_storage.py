@@ -156,6 +156,8 @@ class CallDataStorage:
                         "has_fiscal_code": blob.metadata.get('has_fiscal_code') == 'True',
                         "has_booking": blob.metadata.get('has_booking') == 'True',
                         "transcript_messages": int(blob.metadata.get('transcript_messages', 0)),
+                        "caller_phone": blob.metadata.get('caller_phone'),
+                        "blob_type": blob.metadata.get('type', 'call_data'),
                         "created": blob.creation_time
                     })
 
@@ -218,3 +220,89 @@ class CallDataStorage:
         except Exception as e:
             logger.error(f"❌ Failed to store fiscal code: {e}")
             raise
+
+    async def store_caller_phone(self, session_id: str, caller_phone: str) -> str:
+        """
+        Store Talkdesk caller phone number for session tracking
+
+        Args:
+            session_id: Session identifier
+            caller_phone: Phone number from Talkdesk bridge
+
+        Returns:
+            str: Blob name where caller phone was stored
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            date_folder = datetime.now().strftime("%Y-%m-%d")
+            blob_name = f"caller-phones/{date_folder}/{timestamp}_{session_id}_phone.json"
+
+            phone_data = {
+                "session_id": session_id,
+                "timestamp": timestamp,
+                "caller_phone": caller_phone,
+                "source": "talkdesk_bridge",
+                "stored_at": datetime.now().isoformat()
+            }
+
+            blob_client = self.blob_service.get_blob_client(
+                container=self.container_name,
+                blob=blob_name
+            )
+
+            metadata = {
+                "session_id": session_id,
+                "caller_phone": caller_phone,
+                "source": "talkdesk_bridge",
+                "type": "caller_phone"
+            }
+
+            blob_client.upload_blob(
+                json.dumps(phone_data, indent=2, ensure_ascii=False).encode('utf-8'),
+                overwrite=True,
+                metadata=metadata
+            )
+
+            logger.success(f"✅ Caller phone stored: {caller_phone} for session {session_id}")
+            return blob_name
+
+        except Exception as e:
+            logger.error(f"❌ Failed to store caller phone: {e}")
+            raise
+
+    async def retrieve_caller_phone(self, session_id: str) -> Optional[str]:
+        """
+        Retrieve caller phone number by session ID
+
+        Args:
+            session_id: Session identifier to search for
+
+        Returns:
+            str: Caller phone number or None if not found
+        """
+        try:
+            # List blobs with session_id in metadata and type=caller_phone
+            container_client = self.blob_service.get_container_client(self.container_name)
+
+            for blob in container_client.list_blobs(include='metadata'):
+                if (blob.metadata and
+                    blob.metadata.get('session_id') == session_id and
+                    blob.metadata.get('type') == 'caller_phone'):
+
+                    blob_client = self.blob_service.get_blob_client(
+                        container=self.container_name,
+                        blob=blob.name
+                    )
+                    content = blob_client.download_blob().readall().decode('utf-8')
+                    phone_data = json.loads(content)
+
+                    caller_phone = phone_data.get('caller_phone')
+                    logger.info(f"📞 Retrieved caller phone for session {session_id}: {caller_phone}")
+                    return caller_phone
+
+            logger.warning(f"No caller phone found for session: {session_id}")
+            return None
+
+        except Exception as e:
+            logger.error(f"❌ Failed to retrieve caller phone: {e}")
+            return None

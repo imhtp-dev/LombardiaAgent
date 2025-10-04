@@ -7,12 +7,14 @@ from flows.handlers.patient_detail_handlers import (
     collect_name_and_transition,
     collect_surname_and_transition,
     collect_phone_and_transition,
+    confirm_phone_and_transition,
     collect_email_and_transition,
     confirm_email_and_transition,
     collect_reminder_authorization_and_transition,
     collect_marketing_authorization_and_transition,
     confirm_details_and_create_booking
 )
+from config.settings import settings
 
 
 def create_collect_name_node() -> NodeConfig:
@@ -21,21 +23,21 @@ def create_collect_name_node() -> NodeConfig:
         name="collect_name",
         role_messages=[{
             "role": "system",
-            "content": "Raccogli il nome del paziente per finalizzare la prenotazione."
+            "content": f"Collect the patient's name to finalize the booking. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Qual è il tuo nome?"
+            "content": "What is your name?"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_name",
                 handler=collect_name_and_transition,
-                description="Raccogli il nome del paziente",
+                description="Collect the patient's name",
                 properties={
                     "name": {
                         "type": "string",
-                        "description": "Nome del paziente"
+                        "description": "Patient's name"
                     }
                 },
                 required=["name"]
@@ -50,21 +52,21 @@ def create_collect_surname_node() -> NodeConfig:
         name="collect_surname",
         role_messages=[{
             "role": "system",
-            "content": "Raccogli il cognome del paziente per finalizzare la prenotazione."
+            "content": f"Collect the patient's surname to finalize the booking. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Qual è il tuo cognome?"
+            "content": "What is your surname?"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_surname",
                 handler=collect_surname_and_transition,
-                description="Raccogli il cognome del paziente",
+                description="Collect the patient's surname",
                 properties={
                     "surname": {
                         "type": "string",
-                        "description": "Cognome del paziente"
+                        "description": "Patient's surname"
                     }
                 },
                 required=["surname"]
@@ -79,21 +81,21 @@ def create_collect_phone_node() -> NodeConfig:
         name="collect_phone",
         role_messages=[{
             "role": "system",
-            "content": "Raccogli il numero di telefono del paziente. Chiedigli di parlare cifra per cifra lentamente per maggiore precisione."
+            "content": f"Collect the patient's phone number. Ask them to speak digit by digit slowly for better accuracy. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Puoi dirmi se il telefono da cui stai chiamando corrisponde a quello ufficiale? Se no, dimmi il tuo numero di telefono cifra per cifra. Lentamente!"
+            "content": "Can you tell me if the phone you're calling from matches your official number? If yes, just say 'yes'. If not, tell me your phone number digit by digit. Slowly!"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_phone",
                 handler=collect_phone_and_transition,
-                description="Raccogli il numero di telefono del paziente",
+                description="Collect the patient's phone number",
                 properties={
                     "phone": {
                         "type": "string",
-                        "description": "Numero di telefono del paziente"
+                        "description": "Patient's phone number"
                     }
                 },
                 required=["phone"]
@@ -108,21 +110,21 @@ def create_collect_email_node() -> NodeConfig:
         name="collect_email",
         role_messages=[{
             "role": "system",
-            "content": "Raccogli l'indirizzo email completo del paziente. Chiedigli di leggere l'intera email, lentamente e chiaramente. Conferma ripetendo l'email che hai sentito."
+            "content": f"Collect the patient's complete email address. Ask them to read the entire email, slowly and clearly. Confirm by repeating the email you heard. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Puoi dirmi la tua email completa? Per favore dilla lentamente e chiaramente."
+            "content": "Can you tell me your complete email? Please say it slowly and clearly."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_email",
                 handler=collect_email_and_transition,
-                description="Raccogli l'indirizzo email completo del paziente",
+                description="Collect the patient's complete email address",
                 properties={
                     "email": {
                         "type": "string",
-                        "description": "Indirizzo email completo del paziente (es: nome@dominio.com)"
+                        "description": "Patient's complete email address (e.g. name@domain.com)"
                     }
                 },
                 required=["email"]
@@ -138,21 +140,21 @@ def create_collect_reminder_authorization_node() -> NodeConfig:
         name="collect_reminder_authorization",
         role_messages=[{
             "role": "system",
-            "content": "Chiedi se il paziente vuole ricevere promemoria via email per il suo appuntamento."
+            "content": f"Ask if the patient wants to receive email reminders for their appointment. Wait for their explicit response before calling the function. Only call the function when they clearly say yes/no or similar. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Vorresti ricevere un'email che ti ricordi quando è il tuo appuntamento programmato?"
+            "content": "Would you like to receive an email reminder for your scheduled appointment? Please say 'yes' or 'no'."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_reminder_authorization",
                 handler=collect_reminder_authorization_and_transition,
-                description="Raccogli la preferenza per l'autorizzazione ai promemoria",
+                description="Collect preference for reminder authorization based on user's explicit response",
                 properties={
                     "reminder_authorization": {
                         "type": "boolean",
-                        "description": "Se il paziente vuole ricevere promemoria per l'appuntamento (vero/falso)"
+                        "description": "Whether the patient wants to receive appointment reminders (true for yes, false for no)"
                     }
                 },
                 required=["reminder_authorization"]
@@ -167,21 +169,21 @@ def create_collect_marketing_authorization_node() -> NodeConfig:
         name="collect_marketing_authorization",
         role_messages=[{
             "role": "system",
-            "content": "Chiedi se il paziente vuole ricevere aggiornamenti di marketing da Cerba HealthCare."
+            "content": f"Ask if the patient wants to receive marketing updates from Cerba HealthCare. Wait for their explicit response before calling the function. Only call the function when they clearly say yes/no or similar. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Vuoi ricevere aggiornamenti su Cerba HealthCare?"
+            "content": "Would you like to receive updates about Cerba HealthCare? Please say 'yes' or 'no'."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_marketing_authorization",
                 handler=collect_marketing_authorization_and_transition,
-                description="Raccogli la preferenza per l'autorizzazione al marketing",
+                description="Collect preference for marketing authorization based on user's explicit response",
                 properties={
                     "marketing_authorization": {
                         "type": "boolean",
-                        "description": "Se il paziente vuole ricevere aggiornamenti di marketing (vero/falso)"
+                        "description": "Whether the patient wants to receive marketing updates (true for yes, false for no)"
                     }
                 },
                 required=["marketing_authorization"]
@@ -190,42 +192,36 @@ def create_collect_marketing_authorization_node() -> NodeConfig:
     )
 
 
-def create_confirm_patient_details_node(patient_details: dict) -> NodeConfig:
-    """Create patient details confirmation node (without fiscal code display)"""
-    details_summary = f"""Questi dettagli sono corretti?
 
-Nome: {patient_details.get('name', '')}
-Cognome: {patient_details.get('surname', '')}
-Numero di telefono: {patient_details.get('phone', '')}
-Email: {patient_details.get('email', '')}"""
-
+def create_confirm_phone_node(phone: str) -> NodeConfig:
+    """Create phone confirmation node"""
+    from flows.handlers.patient_detail_handlers import confirm_phone_and_transition
     return NodeConfig(
-        name="confirm_patient_details",
+        name="confirm_phone",
         role_messages=[{
             "role": "system",
-            "content": "Present the collected patient details for confirmation before finalizing the booking."
+            "content": f"Ask the user to confirm their phone number and WAIT for their response. Only call the confirm_phone function AFTER the user has spoken and given their response. If they say yes/correct/confirm, use action='confirm'. If they want to change it, use action='change'. Do NOT call any function until the user has responded. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": details_summary
+            "content": f"I have your phone number as: {phone}. Is this correct? Say \"yes\" if it's correct, or \"change\" if you want to provide a different number."
         }],
         functions=[
             FlowsFunctionSchema(
-                name="confirm_details",
-                handler=confirm_details_and_create_booking,
-                description="Confirm the collected patient details",
+                name="confirm_phone",
+                handler=confirm_phone_and_transition,
+                description="Confirm the phone number or request to change it",
                 properties={
-                    "details_confirmed": {
-                        "type": "boolean",
-                        "description": "Whether the patient confirms the details are correct (true/false)"
+                    "action": {
+                        "type": "string",
+                        "enum": ["confirm", "change"],
+                        "description": "confirm if phone is correct, change if user wants to modify it"
                     }
                 },
-                required=["details_confirmed"]
+                required=["action"]
             )
         ]
     )
-
-
 
 
 def create_confirm_email_node(email: str) -> NodeConfig:
@@ -235,11 +231,11 @@ def create_confirm_email_node(email: str) -> NodeConfig:
         name="confirm_email",
         role_messages=[{
             "role": "system",
-            "content": "Fornisci l'indirizzo email per conferma e chiedi se è corretto."
+            "content": f"Ask the user to confirm their email address and WAIT for their response. Only call the confirm_email function AFTER the user has spoken and given their response. If they say yes/correct/confirm, use action='confirm'. If they want to change it, use action='change'. Do NOT call any function until the user has responded. {settings.language_config}"
         }],
         task_messages=[{
-            "role": "system", 
-            "content": f"Ho la tua email come: {email}. È corretto? Di' \"sì\" se è corretto, o \"cambia\" se vuoi fornire un'email diversa."
+            "role": "system",
+            "content": f"I have your email as: {email}. Is this correct? Say \"yes\" if it's correct, or \"change\" if you want to provide a different email."
         }],
         functions=[
             FlowsFunctionSchema(
@@ -250,7 +246,7 @@ def create_confirm_email_node(email: str) -> NodeConfig:
                     "action": {
                         "type": "string",
                         "enum": ["confirm", "change"],
-                        "description": "confirm if email is correct, change if user wants to modify it"
+                        "description": "confirm if phone is correct, change if user wants to modify it"
                     }
                 },
                 required=["action"]
@@ -260,3 +256,35 @@ def create_confirm_email_node(email: str) -> NodeConfig:
 
 
 
+
+
+def create_booking_processing_node(tts_message: str) -> NodeConfig:
+    """Create a processing node that speaks immediately before performing booking creation"""
+    from flows.handlers.patient_detail_handlers import perform_booking_creation_and_transition
+
+    return NodeConfig(
+        name="booking_processing",
+        pre_actions=[
+            {
+                "type": "tts_say",
+                "text": tts_message
+            }
+        ],
+        role_messages=[{
+            "role": "system",
+            "content": f"You are processing a booking creation. Immediately call perform_booking to execute the actual booking creation. {settings.language_config}"
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": "Now creating your booking with all provided details. Please wait for confirmation."
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="perform_booking",
+                handler=perform_booking_creation_and_transition,
+                description="Execute the actual booking creation after TTS message",
+                properties={},
+                required=[]
+            )
+        ]
+    )

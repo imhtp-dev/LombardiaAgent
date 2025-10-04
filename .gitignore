@@ -95,8 +95,8 @@ cython_debug/
 # Pipecat cloud
 .pcc-deploy.toml
 
-# Bridge connection file (hosted on Azure)
-bridge_conn.py
+# Bridge connection folder (hosted on Azure)
+talkdeskbridge/
 
 # Recordings and temporary files
 recordings/
@@ -143,3 +143,7 @@ cache/
 
 # Extra folders that shouldn't be committed
 extra/
+
+# Development and testing files
+test.py
+CLAUDE.md

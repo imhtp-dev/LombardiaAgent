@@ -4,6 +4,7 @@ Greeting and initial conversation nodes
 
 from pipecat_flows import NodeConfig, FlowsFunctionSchema
 from flows.handlers.service_handlers import search_health_services_and_transition
+from config.settings import settings
 
 
 def create_greeting_node() -> NodeConfig:
@@ -12,25 +13,25 @@ def create_greeting_node() -> NodeConfig:
         name="greeting",
         role_messages=[{
             "role": "system",
-            "content": "Sei Ualà, un assistente virtuale calma e amichevole (voce femminile) per Cerba Healthcare. Parla con calore e chiarezza come un essere umano, non come un robot."
+            "content": f"You are Ualà, a calm and friendly virtual assistant (female voice) for Cerba Healthcare. Speak with warmth and clarity like a human, not like a robot. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Dì: 'Ciao, sono Ualà, un assistente virtuale per Cerba Healthcare. Puoi dirmi quale servizio vorresti prenotare?' Quando l'utente menziona QUALSIASI nome di servizio, chiama immediatamente search_health_services per cercarlo."
+            "content": f"Say: 'Hello, I'm Ualà, a virtual assistant for Cerba Healthcare. Can you tell me which service you would like to book?' When the user mentions ANY service name, immediately call search_health_services to search for it. {settings.language_config}"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="search_health_services",
                 handler=search_health_services_and_transition,
-                description="Cerca servizi sanitari utilizzando la ricerca fuzzy",
+                description="Search health services using fuzzy search",
                 properties={
                     "search_term": {
                         "type": "string",
-                        "description": "Nome del servizio da cercare (ad es. 'cardiologia', 'analisi del sangue', 'radiografia alla caviglia')"
+                        "description": "Name of the service to search for (e.g. 'cardiology', 'blood tests', 'ankle x-ray')"
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Numero massimo di risultati da restituire (predefinito: 3, massimo: 5)",
+                        "description": "Maximum number of results to return (default: 3, maximum: 5)",
                         "default": 3,
                         "minimum": 1,
                         "maximum": 5

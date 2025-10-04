@@ -206,12 +206,14 @@ async def websocket_endpoint(websocket: WebSocket):
     business_status = query_params.get("business_status", "open")
     session_id = query_params.get("session_id", f"session-{len(active_sessions)}")
     start_node = query_params.get("start_node", "greeting")
+    caller_phone = query_params.get("caller_phone", "")
 
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"New Healthcare Flow WebSocket Connection")
     logger.info(f"Session ID: {session_id}")
     logger.info(f"Business Status: {business_status}")
     logger.info(f"Start Node: {start_node}")
+    logger.info(f"Caller Phone: {caller_phone or 'Not provided'}")
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     # Variables for pipeline
@@ -247,15 +249,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 add_wav_header=False,
                 vad_analyzer=SileroVADAnalyzer(
                     params=VADParams(
-                        start_secs=0.1,    # Reduced from 0.2 - detects speech faster
-                        stop_secs=0.3,     # Reduced from 0.5 - stops listening sooner
-                        min_volume=0.2     # Reduced from 0.4 - more sensitive to quiet speech
+                        start_secs=settings.vad_config["start_secs"],
+                        stop_secs=settings.vad_config["stop_secs"],
+                        min_volume=settings.vad_config["min_volume"]
                     )
+                )
                 ),
                 serializer=RawPCMSerializer(),
                 session_timeout=900,
             )
-        )
+        
 
         # CREATE SERVICES USING BOT.PY COMPONENTS
         logger.info("Initializing services...")
@@ -323,6 +326,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # CREATE FLOW MANAGER
         flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
+
+        # Store caller phone number in flow manager state
+        if caller_phone:
+            flow_manager.state["caller_phone_from_talkdesk"] = caller_phone
+            logger.info(f"📞 Stored caller phone in flow state: {caller_phone}")
+
+            # Also store in Azure storage for persistence
+            try:
+                from services.call_storage import CallDataStorage
+                storage = CallDataStorage()
+                await storage.store_caller_phone(session_id, caller_phone)
+                logger.success(f"✅ Caller phone stored in Azure: {caller_phone}")
+            except Exception as e:
+                logger.error(f"❌ Failed to store caller phone in Azure: {e}")
 
         # Initialize STT switcher for dynamic transcription
         from utils.stt_switcher import initialize_stt_switcher

@@ -32,15 +32,53 @@ async def generate_flow_and_transition(args: FlowArgs, flow_manager: FlowManager
         
         # Use first selected service to generate initial flow
         primary_service = selected_services[0]
-        
-        # Make agent speak during flow generation
+
+        # Store flow generation parameters for processing node
+        flow_manager.state["pending_flow_params"] = {
+            "primary_service": primary_service,
+            "selected_services": selected_services,
+            "gender": gender,
+            "date_of_birth": date_of_birth,
+            "address": address
+        }
+
+        # Create intermediate node with pre_actions for immediate TTS
         flow_generation_status_text = f"Sto analizzando {primary_service.name} per determinare se ci sono requisiti speciali o opzioni aggiuntive. Attendi..."
-        
-        # Push TTSSpeakFrame to make agent speak immediately
-        from pipecat.frames.frames import TTSSpeakFrame
-        if flow_manager.task:
-            await flow_manager.task.queue_frames([TTSSpeakFrame(text=flow_generation_status_text)])
-        
+
+        from flows.nodes.patient_info import create_flow_processing_node
+        return {
+            "success": True,
+            "message": f"Starting flow generation for {primary_service.name}"
+        }, create_flow_processing_node(primary_service.name, flow_generation_status_text)
+
+    except Exception as e:
+        logger.error(f"❌ Flow generation initialization error: {e}")
+        from flows.nodes.completion import create_error_node
+        return {
+            "success": False,
+            "message": "Flow generation failed. Please try again."
+        }, create_error_node("Flow generation failed. Please try again.")
+
+
+async def perform_flow_generation_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Perform the actual flow generation after TTS message"""
+    try:
+        # Get stored flow parameters
+        params = flow_manager.state.get("pending_flow_params", {})
+        if not params:
+            from flows.nodes.completion import create_error_node
+            return {
+                "success": False,
+                "message": "Missing flow parameters"
+            }, create_error_node("Missing flow parameters. Please start over.")
+
+        # Extract parameters
+        primary_service = params["primary_service"]
+        selected_services = params["selected_services"]
+        gender = params["gender"]
+        date_of_birth = params["date_of_birth"]
+        address = params["address"]
+
         # Format date for API call
         dob_formatted = date_of_birth.replace("-", "")
         

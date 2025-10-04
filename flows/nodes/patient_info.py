@@ -10,6 +10,7 @@ from flows.handlers.patient_handlers import (
     collect_birth_city_and_transition,
     verify_basic_info_and_transition
 )
+from config.settings import settings
 
 
 def create_collect_address_node() -> NodeConfig:
@@ -18,21 +19,21 @@ def create_collect_address_node() -> NodeConfig:
         name="collect_address",
         role_messages=[{
             "role": "system",
-            "content": "Raccogli l'indirizzo del paziente per trovare centri sanitari nelle vicinanze."
+            "content": f"Collect the patient's address to find nearby health centers. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Perfetto! Ora ho bisogno del tuo indirizzo o città per trovare centri sanitari nelle vicinanze. Per favore dimmi il tuo indirizzo."
+            "content": "Perfect! Now I need your address or city to find nearby health centers. Please tell me your address."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_address",
                 handler=collect_address_and_transition,
-                description="Raccogli l'indirizzo del paziente",
+                description="Collect the patient's address",
                 properties={
                     "address": {
                         "type": "string",
-                        "description": "Indirizzo o città del paziente"
+                        "description": "Patient's address or city"
                     }
                 },
                 required=["address"]
@@ -47,21 +48,21 @@ def create_collect_gender_node() -> NodeConfig:
         name="collect_gender",
         role_messages=[{
             "role": "system",
-            "content": "Chiedi al paziente il suo genere e aspetta la sua risposta prima di chiamare qualsiasi funzione."
+            "content": f"Ask the patient for their gender and wait for their response before calling any function. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Per favore dimmi il tuo genere. Sei maschio o femmina?"
+            "content": "Please tell me your gender. Are you male or female?"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_gender",
                 handler=collect_gender_and_transition,
-                description="Raccogli il genere del paziente",
+                description="Collect the patient's gender",
                 properties={
                     "gender": {
                         "type": "string",
-                        "description": "Genere del paziente (maschio/femmina)"
+                        "description": "Patient's gender (male/female)"
                     }
                 },
                 required=["gender"]
@@ -76,17 +77,17 @@ def create_collect_dob_node() -> NodeConfig:
         name="collect_dob",
         role_messages=[{
             "role": "system",
-            "content": "Raccogli la data di nascita del paziente per la prenotazione. Sii flessibile con i formati delle date e converti internamente qualsiasi data in linguaggio naturale nel formato YYY-MM-DD. Non comunicare mai all'utente i requisiti di formato. Chiedi semplicemente e lascia che sia l'LLM a occuparsi della conversione."
+            "content": f"Collect the patient's date of birth for the booking. Be flexible with date formats and internally convert any natural language date to YYYY-MM-DD format. Never tell the user format requirements. Just ask and let the LLM handle the conversion. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Potresti darmi la tua data di nascita?"
+            "content": "Could you give me your date of birth?"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_dob",
                 handler=collect_dob_and_transition,
-                description="Raccogli la data di nascita del paziente",
+                description="Collect the patient's date of birth",
                 properties={
                     "date_of_birth": {
                         "type": "string",
@@ -105,21 +106,21 @@ def create_collect_birth_city_node() -> NodeConfig:
         name="collect_birth_city",
         role_messages=[{
             "role": "system",
-            "content": "Raccogli la città di nascita del paziente per la generazione del codice fiscale. È importante ottenere il nome completo e corretto della città."
+            "content": f"Collect the patient's birth city for tax code generation. It's important to get the complete and correct city name. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "In quale città sei nato/a? Per favore dimmi il nome completo della città di nascita."
+            "content": "In which city were you born? Please tell me the complete name of your birth city."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_birth_city",
                 handler=collect_birth_city_and_transition,
-                description="Raccogli la città di nascita del paziente",
+                description="Collect the patient's birth city",
                 properties={
                     "birth_city": {
                         "type": "string",
-                        "description": "Città di nascita del paziente"
+                        "description": "Patient's birth city"
                     }
                 },
                 required=["birth_city"]
@@ -132,20 +133,20 @@ def create_verify_basic_info_node(address: str, gender: str, dob: str, birth_cit
     """Create verification node for address, gender, DOB, and birth city"""
     gender_display = "Male" if gender.lower() == "m" else "Female" if gender.lower() == "f" else gender
 
-    verification_text = f"""Verifica le informazioni che ho raccolto:
+    verification_text = f"""Verify the information I've collected:
 
-Indirizzo: {address}
-Sesso: {gender_display}
-Data di nascita: {dob}
-Città di nascita: {birth_city}
+Address: {address}
+Gender: {gender_display}
+Date of Birth: {dob}
+Birth City: {birth_city}
 
-Questi dati sono corretti? Rispondi "sì" se sono corretti, oppure indicami cosa deve essere modificato."""
+Is this data correct? Answer "yes" if it's correct, or tell me what needs to be changed."""
 
     return NodeConfig(
         name="verify_basic_info",
         role_messages=[{
             "role": "system",
-            "content": "Presentare le informazioni del paziente per la verifica. Se l'utente risponde 'sì', confermare tutti i dettagli. Se l'utente desidera modificare qualcosa di specifico (ad esempio 'cambiare sesso in maschile'), aggiornare solo quel campo. Ascoltare cosa desidera modificare ed estrarre il nome del campo e il nuovo valore."
+            "content": f"Present patient information for verification. If user answers 'yes', confirm all details. If user wants to change something specific (e.g. 'change gender to male'), update only that field. Listen for what they want to change and extract the field name and new value. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -173,6 +174,37 @@ Questi dati sono corretti? Rispondi "sì" se sono corretti, oppure indicami cosa
                     }
                 },
                 required=["action"]
+            )
+        ]
+    )
+
+def create_flow_processing_node(service_name: str, tts_message: str) -> NodeConfig:
+    """Create a processing node that speaks immediately before performing flow generation"""
+    from flows.handlers.flow_handlers import perform_flow_generation_and_transition
+
+    return NodeConfig(
+        name="flow_processing",
+        pre_actions=[
+            {
+                "type": "tts_say",
+                "text": tts_message
+            }
+        ],
+        role_messages=[{
+            "role": "system",
+            "content": f"You are processing flow generation for {service_name}. Immediately call perform_flow_generation to execute the actual flow analysis. {settings.language_config}"
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": f"Now analyzing {service_name} for special requirements and additional options. Please wait."
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="perform_flow_generation",
+                handler=perform_flow_generation_and_transition,
+                description="Execute the actual flow generation after TTS message",
+                properties={},
+                required=[]
             )
         ]
     )

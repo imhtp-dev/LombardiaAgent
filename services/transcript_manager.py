@@ -117,40 +117,125 @@ class TranscriptManager:
             if not self.conversation_log:
                 return "No conversation to summarize."
 
-            # Create conversation text for summarization
+            # Create conversation text for summarization (without personal details)
             conversation_text = "\n".join([
                 f"{msg.role.title()}: {msg.content}"
                 for msg in self.conversation_log
             ])
 
-            # Simple summary prompt
-            summary_prompt = f"""Summarize this healthcare booking conversation in Italian. Focus on:
-- Patient information collected
-- Services requested
-- Booking status
-- Any important details
+            # Professional healthcare summarization prompt
+            summary_prompt = f"""You are a healthcare call center supervisor reviewing a conversation transcript. Please provide a comprehensive summary of this healthcare booking conversation.
 
-Conversation:
+ANALYZE THE CONVERSATION AND SUMMARIZE:
+1. What services did the patient want to book?
+2. Was the booking completed successfully? If yes, provide booking details (date, time, location, services)
+3. What was the conversation flow and outcome?
+4. Were there any issues, cancellations, or rescheduling?
+5. What authorizations were given (reminders, marketing)?
+6. Overall call success and patient satisfaction
+
+Be accurate and only state what actually happened in the conversation. Do not make assumptions.
+
+CONVERSATION TRANSCRIPT:
 {conversation_text}
 
-Summary (in Italian, max 200 words):"""
+SUMMARY (must in Italian):"""
 
-            # If we have access to flow manager and LLM, use it for better summary
+            # Use LLM if available
             if flow_manager and hasattr(flow_manager, 'llm'):
                 try:
-                    # This would need to be implemented based on your LLM service structure
-                    # For now, return basic summary
-                    logger.debug("🤖 AI summary generation not implemented yet, using basic summary")
-                    return self.generate_conversation_summary()
+                    from openai import AsyncOpenAI
+                    import os
+
+                    # Initialize OpenAI client
+                    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+                    # Generate summary using OpenAI
+                    response = await client.chat.completions.create(
+                        model="gpt-4-mini",
+                        messages=[
+                            {"role": "system", "content": "You are a professional healthcare call center supervisor. Provide accurate, detailed summaries of healthcare booking conversations."},
+                            {"role": "user", "content": summary_prompt}
+                        ],
+                        max_tokens=500,
+                        temperature=0.1  # Low temperature for factual accuracy
+                    )
+
+                    ai_summary = response.choices[0].message.content.strip()
+                    logger.success("🤖 AI summary generated successfully")
+
+                    # Now append personal details that weren't sent to LLM
+                    return self._append_personal_details_to_summary(ai_summary, flow_manager)
+
                 except Exception as e:
                     logger.error(f"❌ AI summary generation failed: {e}")
-                    return self.generate_conversation_summary()
+                    return self._generate_fallback_summary(flow_manager)
             else:
-                return self.generate_conversation_summary()
+                logger.warning("⚠️ Flow manager or LLM not available, using fallback summary")
+                return self._generate_fallback_summary(flow_manager)
 
         except Exception as e:
             logger.error(f"❌ Error generating summary: {e}")
-            return self.generate_conversation_summary()
+            return self._generate_fallback_summary(flow_manager)
+
+    def _append_personal_details_to_summary(self, ai_summary: str, flow_manager) -> str:
+        """Append personal details to AI-generated summary (not sent to LLM)"""
+        personal_details = []
+
+        if flow_manager:
+            # Extract personal information
+            patient_name = flow_manager.state.get("patient_name", "")
+            patient_surname = flow_manager.state.get("patient_surname", "")
+            patient_phone = flow_manager.state.get("patient_phone", "")
+            patient_email = flow_manager.state.get("patient_email", "")
+            caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+            fiscal_code = flow_manager.state.get("generated_fiscal_code", "")
+
+            personal_details.append("\n" + "="*50)
+            personal_details.append("INFORMAZIONI PAZIENTE (Riservato)")
+            personal_details.append("="*50)
+
+            if patient_name or patient_surname:
+                personal_details.append(f"Nome Paziente: {patient_name} {patient_surname}".strip())
+            if patient_phone:
+                personal_details.append(f"Numero di Telefono: {patient_phone}")
+            if caller_phone and caller_phone != patient_phone:
+                personal_details.append(f"Telefono Chiamante (Talkdesk): {caller_phone}")
+            if patient_email:
+                personal_details.append(f"Indirizzo Email: {patient_email}")
+            if fiscal_code:
+                personal_details.append(f"Codice Fiscale: {fiscal_code}")
+
+            # Add call metadata
+            duration = self.get_conversation_duration()
+            personal_details.append(f"Durata Chiamata: {duration} secondi ({duration // 60}:{duration % 60:02d})")
+            personal_details.append(f"ID Sessione: {self.session_id}")
+
+        return ai_summary + "\n".join(personal_details)
+
+    def _generate_fallback_summary(self, flow_manager) -> str:
+        """Generate fallback summary when AI is not available"""
+        duration = self.get_conversation_duration()
+        user_messages = [msg for msg in self.conversation_log if msg.role == "user"]
+        assistant_messages = [msg for msg in self.conversation_log if msg.role == "assistant"]
+
+        fallback_parts = []
+        fallback_parts.append("=== CALL SUMMARY (Fallback) ===")
+        fallback_parts.append(f"Call Duration: {duration} seconds")
+        fallback_parts.append(f"Total Messages: {len(self.conversation_log)} ({len(user_messages)} user, {len(assistant_messages)} assistant)")
+
+        if flow_manager:
+            # Add booking information
+            selected_services = flow_manager.state.get("selected_services", [])
+            final_booking = flow_manager.state.get("final_booking", {})
+
+            if selected_services:
+                fallback_parts.append(f"Services: {len(selected_services)} service(s) selected")
+            if final_booking.get("code"):
+                fallback_parts.append(f"Booking created with code: {final_booking.get('code')}")
+
+        # Add personal details
+        return self._append_personal_details_to_summary("\n".join(fallback_parts), flow_manager)
 
     async def extract_and_store_call_data(self, flow_manager) -> bool:
         """Extract all call data and store in Azure Storage"""

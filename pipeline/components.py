@@ -35,7 +35,8 @@ def create_stt_service() -> DeepgramSTTService:
                 punctuate=config["punctuate"],
                 vad_events=config["vad_events"],
                 profanity_filter=config["profanity_filter"],
-                numerals=config["numerals"]
+                numerals=config["numerals"],
+                keywords=config["keywords"]
             )
         )
 

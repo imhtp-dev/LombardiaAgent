@@ -35,7 +35,11 @@ class Settings:
             "punctuate": True,
             "vad_events": False,
             "profanity_filter": False,
-            "numerals": True
+            "numerals": True,
+            "keywords": {
+                "maschio": 3,
+                "femmina": 3
+            }
         }
     
     @property
@@ -79,6 +83,11 @@ class Settings:
             "enable_metrics": False,
             "enable_usage_metrics": False
         }
+
+    @property
+    def language_config(self) -> str:
+        """Global language instruction for prompts"""
+        return "You need to speak Italian"
     
     def _validate_required_keys(self) -> None:
         """Validate that all required API keys are present"""

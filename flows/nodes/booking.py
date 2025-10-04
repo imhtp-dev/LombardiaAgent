@@ -17,8 +17,10 @@ from flows.handlers.booking_handlers import (
     search_slots_and_transition,
     select_slot_and_book,
     create_booking_and_transition,
-    handle_booking_modification
+    handle_booking_modification,
+    confirm_booking_summary_and_proceed
 )
+from config.settings import settings
 
 
 def create_orange_box_node() -> NodeConfig:
@@ -27,17 +29,17 @@ def create_orange_box_node() -> NodeConfig:
         name="orange_box_flow_generation", 
         role_messages=[{
             "role": "system",
-            "content": "Genera il flusso decisionale basato sulle caratteristiche del servizio sanitario selezionato."
+            "content": f"Generate decision flow based on the characteristics of the selected health service. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Ora analizzerò il servizio selezionato per determinare se ci sono requisiti speciali o opzioni aggiuntive. Aspetta un momento per favore."
+            "content": "Now I'll analyze the selected service to determine if there are special requirements or additional options. Please wait a moment."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="generate_flow",
                 handler=generate_flow_and_transition,
-                description="Genera il flusso decisionale per il servizio selezionato",
+                description="Generate decision flow for the selected service",
                 properties={},
                 required=[]
             )
@@ -52,43 +54,43 @@ def create_flow_navigation_node(generated_flow: dict, service_name: str) -> Node
         name="flow_navigation",
         role_messages=[{
             "role": "system",
-            "content": f"""Stai navigando in un flusso decisionale per il servizio sanitario: {service_name}
-            
-SEGUI QUESTA ESATTA STRUTTURA DI FLUSSO: {json.dumps(generated_flow, indent=2)}
-            
-ISTRUZIONI IMPORTANTI:
-1. Iniziare con il messaggio principale del flusso
-2. Presentare le domande esattamente come scritto nel flusso
-3. Seguire i rami sì/no in base alle risposte dell'utente
-4. Quando si presentano le opzioni di servizio, mostrare SOLO i nomi dei servizi da list_health_services - NON menzionare MAI gli UUID
-5. Se list_health_services è vuoto in una domanda ma contiene servizi nei rami di risposta, mostrare tali servizi quando si pone la domanda
-6. Quando l'utente seleziona servizi aggiuntivi, monitorarli internamente con i loro UUID
-7. Quando l'utente risponde "sì" alle domande sulla visita specialistica, includere tali servizi specialistici
-8. Quando si raggiunge un'azione finale (save_cart, ecc.), chiamare la funzione finalize_services
-9. CRITICO: includere TUTTI i servizi scelti dall'utente durante la conversazione
+            "content": f"""You are navigating a decision flow for the health service: {service_name}
 
-**REGOLE CRITICHE:**
-- NON menzionare MAI gli UUID agli utenti - sono solo interni
-- NON utilizzare MAI 1, 2, 3 o numeri quando si presentano i servizi
-- Elencare solo i nomi dei servizi separati da virgole o A capo, senza prefissi numerici
-- Se una domanda riguarda i servizi ma list_health_services è vuoto, controlla i rami delle risposte per i servizi disponibili da visualizzare
+FOLLOW THIS EXACT FLOW STRUCTURE: {json.dumps(generated_flow, indent=2)}
 
-Logica decisionale del flusso:
-- Se l'utente sceglie servizi aggiuntivi dall'elenco principale, includi tali servizi
-- Se l'utente risponde SÌ alle domande relative alle visite specialistiche, includi i servizi specialistici da quel ramo
-- Se l'utente risponde NO, segui il ramo "no" di conseguenza
+IMPORTANT INSTRUCTIONS:
+1. Start with the main flow message
+2. Present questions exactly as written in the flow
+3. Follow yes/no branches based on user responses
+4. When presenting service options, show ONLY service names from list_health_services - NEVER mention UUIDs
+5. If list_health_services is empty in a question but contains services in response branches, show those services when asking the question
+6. When user selects additional services, track them internally with their UUIDs
+7. When user answers "yes" to specialist visit questions, include those specialist services
+8. When reaching a final action (save_cart, etc.), call finalize_services function
+9. CRITICAL: include ALL services chosen by user during conversation
 
-FONDAMENTALE: Quando si pongono domande sui servizi:
-- Se la domanda corrente ha list_health_services con elementi, mostra tali servizi
-- Se la domanda corrente ha list_health_services vuoto ma i rami "sì" o "no" contengono list_health_services, mostra QUEI servizi nella tua domanda
-- Esempio: la domanda chiede "Desidera una consulenza specialistica?" e il ramo "sì" ha list_health_services: ["Visita Cardiologica"], quindi di' "Desideri prenotare una visita specialistica? La visita specialistica disponibile è: Visita Cardiologica"
-- Mostra sempre solo i nomi dei servizi, mai UUID, mai numeri
+**CRITICAL RULES:**
+- NEVER mention UUIDs to users - they are internal only
+- NEVER use 1, 2, 3 or numbers when presenting services
+- List only service names separated by commas or line breaks, without numerical prefixes
+- If a question is about services but list_health_services is empty, check response branches for available services to display
 
-Sii colloquiale ma segui attentamente la struttura del flusso. Parla sempre come un essere umano, non come un robot."""
+Flow decision logic:
+- If user chooses additional services from main list, include those services
+- If user answers YES to specialist visit questions, include specialist services from that branch
+- If user answers NO, follow the "no" branch accordingly
+
+FUNDAMENTAL: When asking questions about services:
+- If current question has list_health_services with items, show those services
+- If current question has empty list_health_services but "yes" or "no" branches contain list_health_services, show THOSE services in your question
+- Example: question asks "Would you like a specialist consultation?" and "yes" branch has list_health_services: ["Cardiology Visit"], so say "Would you like to book a specialist visit? The available specialist visit is: Cardiology Visit"
+- Always show only service names, never UUIDs, never numbers
+
+Be conversational but follow the flow structure carefully. Always speak like a human, not a robot. {settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",
-            "content": f"Avviare il flusso decisionale per {service_name}. Iniziare con il messaggio principale dal flusso generato."
+            "content": f"Start the decision flow for {service_name}. Begin with the main message from the generated flow."
         }],
         functions=[
             FlowsFunctionSchema(
@@ -129,17 +131,17 @@ def create_final_center_search_node() -> NodeConfig:
         name="final_center_search", 
         role_messages=[{
             "role": "system",
-            "content": "Cerca centri sanitari che forniscono tutti i servizi selezionati."
+            "content": f"Search health centers that provide all selected services. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Perfetto! Ora cercherò centri sanitari che possono fornire tutti i servizi selezionati. Aspetta un momento per favore."
+            "content": "Perfect! Now I'll search for health centers that can provide all selected services. Please wait a moment."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="search_final_centers",
                 handler=search_final_centers_and_transition,
-                description="Cerca centri sanitari con tutti i servizi selezionati",
+                description="Search health centers with all selected services",
                 properties={},
                 required=[]
             )
@@ -154,26 +156,26 @@ def create_final_center_selection_node(centers: List[HealthCenter], services: Li
     center_options = "\n\n".join([f"**{center.name}** in {center.city}\nAddress: {center.address}" for center in top_centers])
     service_names = ", ".join([s.name for s in services])
     
-    task_content = f"""Perfetto! Ho trovato questi centri sanitari che possono fornire i tuoi servizi ({service_names}):
+    task_content = f"""Perfect! I found these health centers that can provide your services ({service_names}):
 
 {center_options}
 
-Quale centro sanitario preferiresti per il tuo appuntamento? Dimmi solo il nome o il numero."""
+Which health center would you prefer for your appointment? Just tell me the name or number."""
     
     return NodeConfig(
         name="final_center_selection",
         role_messages=[{
             "role": "system",
-            "content": f"""Siamo attualmente nel 2025. Stai aiutando un paziente a scegliere tra {len(top_centers)} centri sanitari che possono fornire i loro servizi: {service_names}.
+            "content": f"""We are currently in 2025. You are helping a patient choose between {len(top_centers)} health centers that can provide their services: {service_names}.
 
-IMPORTANTE: Devi presentare chiaramente i centri sanitari e chiedere al paziente di sceglierne uno. Non dire mai frasi generiche come "completa la prenotazione" - invece, presenta i centri specifici e chiedi di scegliere.
+IMPORTANT: You must clearly present the health centers and ask the patient to choose one. Never say generic phrases like "complete the booking" - instead, present the specific centers and ask them to choose.
 
-Quando il paziente seleziona un centro, chiama la funzione select_center con l'UUID corretto del centro.
+When the patient selects a center, call the select_center function with the correct center UUID.
 
-Centri disponibili:
+Available centers:
 {chr(10).join([f"- {center.name} (UUID: {center.uuid})" for center in top_centers])}
 
-Parla sempre naturalmente come un essere umano e di' 'euro' invece del simbolo €."""
+Always speak naturally like a human and say 'euros' instead of the € symbol. {settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",
@@ -183,11 +185,11 @@ Parla sempre naturalmente come un essere umano e di' 'euro' invece del simbolo �
             FlowsFunctionSchema(
                 name="select_center",
                 handler=select_center_and_book,
-                description="Seleziona un centro sanitario per la prenotazione",
+                description="Select a health center for booking",
                 properties={
                     "center_uuid": {
                         "type": "string",
-                        "description": "UUID del centro sanitario selezionato"
+                        "description": "UUID of the selected health center"
                     }
                 },
                 required=["center_uuid"]
@@ -206,7 +208,7 @@ def create_no_centers_node(address: str, service_name: str) -> NodeConfig:
         }],
         task_messages=[{
             "role": "system",
-            "content": f"Nessun centro sanitario trovato in {address} per {service_name}. Scusati e chiedi se desiderano provare una sede o un servizio diverso. Offriti di ricominciare da capo."
+            "content": f"No health center found at {address} for {service_name}. Apologize and ask if they'd like to try a different location or service. Offer to start over. {settings.language_config}"
         }],
         functions=[
             FlowsFunctionSchema(
@@ -231,11 +233,11 @@ def create_cerba_membership_node() -> NodeConfig:
         name="cerba_membership_check",
         role_messages=[{
             "role": "system",
-            "content": "Chiedere al paziente se è un membro Cerba per calcolare i prezzi."
+            "content": f"Ask the patient if he or she is a Cerba member to calculate prices. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Hai una Cerba Card?"
+            "content": "Do you have a Cerba Card?"
         }],
         functions=[
             FlowsFunctionSchema(
@@ -260,11 +262,11 @@ def create_collect_datetime_node() -> NodeConfig:
         name="collect_datetime",
         role_messages=[{
             "role": "system",
-            "content": "L'anno corrente è il 2025. Raccogli la data preferita e l'orario opzionale per l'appuntamento. Se l'utente dice 'mattina' o menziona l'orario mattutino, preferisce le 08:00-12:00 (formato 24 ore). Se dice 'pomeriggio' o menziona l'orario pomeridiano, preferisce le 12:00-19:00 (formato 24 ore). Utilizza e visualizza sempre il formato 24 ore (ad esempio 13:40, 15:30) - NON convertire MAI nel formato 12 ore. Converti internamente la data in linguaggio naturale dell'utente nel formato YYY-MM-DD. Sii flessibile con i formati di input dell'utente. Parla in modo naturale come un essere umano."
+            "content": f"The current year is 2025. Collect the preferred date and optional time for the appointment. If the user says 'morning' or mentions morning time, prefer 8:00-12:00 (24-hour clock). If they say 'afternoon' or mention afternoon time, prefer 12:00-19:00 (24-hour clock). Always use and display the 24-hour clock (e.g., 1:40 PM, 3:30 PM) - NEVER convert to 12-hour clock. Internally convert the user's natural language date to YYY-MM-DD format. Be flexible with user input formats. Speak naturally like a human. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Quale data e ora preferisci per il tuo appuntamento? "
+            "content": "What date and time would you prefer for your appointment?"
         }],
         functions=[
             FlowsFunctionSchema(
@@ -274,15 +276,15 @@ def create_collect_datetime_node() -> NodeConfig:
                 properties={
                     "preferred_date": {
                         "type": "string",
-                        "description": "Data preferita per l'appuntamento nel formato YYYY-MM-DD"
+                        "description": "Preferred appointment date in YYYY-MM-DD format"
                     },
                     "preferred_time": {
                         "type": "string",
-                        "description": "Orario preferito per l'appuntamento (orario specifico come '09:00', '14:30' o intervallo di tempo come 'mattina', 'pomeriggio')"
+                        "description": "Preferred appointment time (specific time like '9:00', '14:30' or time range like 'morning', 'afternoon'')"
                     },
                     "time_preference": {
                         "type": "string",
-                        "description": "Preferenza oraria: 'mattina' (8:00-12:00), 'pomeriggio' (12:00-19:00), 'specifico' (orario esatto) o 'qualsiasi' (nessuna preferenza)"
+                        "description": "Time preference: 'morning' (8:00-12:00), 'afternoon' (12:00-19:00), 'specific' (exact time), or 'any' (no preference)"
                     }
                 },
                 required=["preferred_date"]
@@ -294,17 +296,17 @@ def create_collect_datetime_node() -> NodeConfig:
 def create_collect_datetime_node_for_service(service_name: str = None, is_multi_service: bool = False) -> NodeConfig:
     """Create date and time collection node, optionally for specific service"""
     if is_multi_service and service_name:
-        task_content = f"Che data e orario preferiresti per il tuo appuntamento di {service_name}?"
+        task_content = f"What date and time would you prefer for your appointment? {service_name}? {settings.language_config}"
         node_name = f"collect_datetime_{service_name.lower().replace(' ', '_')}"
     else:
-        task_content = "Che data e orario preferiresti per il tuo appuntamento?"
+        task_content = f"What date and time would you prefer for your appointment? {settings.language_config}"
         node_name = "collect_datetime"
     
     return NodeConfig(
         name=node_name,
         role_messages=[{
             "role": "system",
-            "content": "Raccogli la data e l'ora preferite per l'appuntamento. Converti internamente la data/ora in linguaggio naturale dell'utente nel formato AAAA-MM-GG e nel formato 24 ore. Sii flessibile con i formati di input dell'utente."
+            "content": f"Collect the preferred date and time for the appointment. Internally convert the user's natural language date/time into YYYY-MM-DD and 24-hour clock formats. Be flexible with user input formats. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -318,11 +320,11 @@ def create_collect_datetime_node_for_service(service_name: str = None, is_multi_
                 properties={
                     "preferred_date": {
                         "type": "string",
-                        "description": "Data preferita per l'appuntamento nel formato YYYY-MM-DD"
+                        "description": "Preferred appointment date in YYYY-MM-DD format"
                     },
                     "preferred_time": {
                         "type": "string",
-                        "description": "Orario preferito per l'appuntamento (ad es., '09:00', '14:30')"
+                        "description": "Preferred appointment time (e.g., '9:00', '14:30')"
                     }
                 },
                 required=["preferred_date", "preferred_time"]
@@ -337,17 +339,17 @@ def create_slot_search_node() -> NodeConfig:
         name="slot_search",
         role_messages=[{
             "role": "system",
-            "content": "Cerca slot di appuntamento disponibili per il servizio e l'orario selezionati."
+            "content": f"Search for available appointment slots for the selected service and time. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Lascia che cerchi slot di appuntamento disponibili per la tua data e orario preferiti. Aspetta un momento per favore..."
+            "content": "Let me search for available appointment slots for your preferred date and time. Please wait a moment..."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="search_slots",
                 handler=search_slots_and_transition,
-                description="Cerca slot di appuntamento disponibili",
+                description="Search for available appointment slots",
                 properties={},
                 required=[]
             )
@@ -411,41 +413,41 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
         if len(day_slots) == 1:
             # Single slot - be very specific and natural
             slot = day_slots[0]
-            task_content = f"Ottimo! Abbiamo uno slot disponibile per {service.name} il {formatted_date} dalle {slot['start_time_24h']} alle {slot['end_time_24h']}. Vorresti che prenotassi questo appuntamento per te alle {slot['start_time_24h']}?"
+            task_content = f"Great! We have one slot available for {service.name} on {formatted_date} from {slot['start_time_24h']} to {slot['end_time_24h']}. Would you like me to book this appointment for you at {slot['start_time_24h']}?"
         elif len(day_slots) <= 6:
             # Few slots - show them in a natural way
             if afternoon_slots and not morning_slots:
                 # Only afternoon slots
                 first_slot = afternoon_slots[0]
                 last_slot = afternoon_slots[-1] if len(afternoon_slots) > 1 else first_slot
-                task_content = f"Abbiamo appuntamenti disponibili per {service.name} nel pomeriggio il {formatted_date} dalle {first_slot['start_time_24h']} alle {last_slot['end_time_24h']}. Quale orario andrebbe meglio per te? Posso prenotarti alle {first_slot['start_time_24h']} o qualsiasi altro orario disponibile."
+                task_content = f"We have appointments available for {service.name} in the afternoon on {formatted_date} from {first_slot['start_time_24h']} to {last_slot['end_time_24h']}. What time would work best for you? I can book you at {first_slot['start_time_24h']} or any other available time."
             elif morning_slots and not afternoon_slots:
                 # Only morning slots
                 first_slot = morning_slots[0]
                 last_slot = morning_slots[-1] if len(morning_slots) > 1 else first_slot
-                task_content = f"Abbiamo appuntamenti disponibili per {service.name} la mattina il {formatted_date} dalle {first_slot['start_time_24h']} alle {last_slot['end_time_24h']}. Quale orario andrebbe meglio per te? Posso prenotarti alle {first_slot['start_time_24h']} o qualsiasi altro orario disponibile."
+                task_content = f"We have appointments available for {service.name} in the morning on {formatted_date} from {first_slot['start_time_24h']} to {last_slot['end_time_24h']}. What time would work best for you? I can book you at {first_slot['start_time_24h']} or any other available time."
             else:
                 # Both morning and afternoon
                 morning_first = morning_slots[0]['start_time_24h'] if morning_slots else None
                 afternoon_first = afternoon_slots[0]['start_time_24h'] if afternoon_slots else None
                 if morning_first and afternoon_first:
-                    task_content = f"Abbiamo appuntamenti disponibili per {service.name} il {formatted_date}. Posso prenotarti la mattina a partire dalle {morning_first} o il pomeriggio a partire dalle {afternoon_first}. Quale preferenza oraria andrebbe meglio per te?"
+                    task_content = f"We have appointments available for {service.name} on {formatted_date}. I can book you in the morning starting from {morning_first} or in the afternoon starting from {afternoon_first}. Which time preference would work better for you?"
                 else:
                     first_slot = day_slots[0]
-                    task_content = f"Abbiamo appuntamenti disponibili per {service.name} il {formatted_date}. L'orario più presto disponibile è alle {first_slot['start_time_24h']}. Dovrei prenotare questo orario per te o preferiresti un orario diverso?"
+                    task_content = f"We have appointments available for {service.name} on {formatted_date}. The earliest available time is at {first_slot['start_time_24h']}. Should I book this time for you or would you prefer a different time?"
         else:
             # Many slots - group and be natural
-            availability_text = f"Abbiamo diversi appuntamenti disponibili per {service.name} il {formatted_date}:\n\n"
+            availability_text = f"We have several appointments available for {service.name} on {formatted_date}:\n\n"
             
             if morning_slots:
                 morning_times = [f"{s['start_time_24h']} to {s['end_time_24h']}" for s in morning_slots[:3]]
-                availability_text += f"Orari mattutini: {', '.join(morning_times)}\n"
+                availability_text += f"Morning times: {', '.join(morning_times)}\n"
             
             if afternoon_slots:
                 afternoon_times = [f"{s['start_time_24h']} to {s['end_time_24h']}" for s in afternoon_slots[:3]]
-                availability_text += f"Orari pomeridiani: {', '.join(afternoon_times)}\n"
+                availability_text += f"Afternoon times: {', '.join(afternoon_times)}\n"
             
-            task_content = f"{availability_text}\nQuale orario funziona meglio per te? Dimmi semplicemente il tuo orario preferito e lo prenoterò per te."
+            task_content = f"{availability_text}\nWhat time works best for you? Just tell me your preferred time and I'll book it for you."
         
     else:
         # Multiple days - show available dates and suggest choosing one
@@ -457,7 +459,7 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
             available_dates.append(f"{formatted_date} ({slots_count} slots available)")
         
         dates_text = "\n- ".join(available_dates)
-        task_content = f"Abbiamo appuntamenti disponibili in queste date:\n\n- {dates_text}\n\nQuale data preferiresti? Poi ti mostrerò gli orari disponibili per quel giorno."
+        task_content = f"We have appointments available on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Then I'll show you the available times for that day."
     
     # Create the slot selection context with all required booking info
     slot_context = {
@@ -470,16 +472,16 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
         name="slot_selection",
         role_messages=[{
             "role": "system",
-            "content": f"""Al momento è il 2025. Aiuta il paziente a selezionare tra gli slot di appuntamento disponibili per {service.name}.
+            "content": f"""It's currently 2025. Help the patient select from available appointment slots for {service.name}.
 
-Hai {len(slot)} slot disponibili. Quando presenti gli slot:
-- Usa SEMPRE il formato orario a 24 ore (ad esempio, 13:40, 15:30) - NON convertire MAI nel formato a 12 ore
-- Non menzionare mai prezzi, UUID o dettagli tecnici
-- Sii colloquiale e umano
-- Parla in modo naturale, come se stessi suggerendo un orario specifico: "Devo prenotarti alle 13:40?"
-- Di' sempre "euro" a parole, non il simbolo €
+You have {len(slots)} available slots. When presenting slots:
+- ALWAYS use 24-hour time format (e.g., 13:40, 15:30) - NEVER convert to 12-hour format
+- Never mention prices, UUIDs, or technical details
+- Be conversational and human
+- Speak naturally, as if suggesting a specific time: "Should I book you at 13:40?"
+- Always say "euros" in words, not the € symbol
 
-Dati sugli slot disponibili: {slot_context}"""
+Available slot data: {slot_context} {settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",
@@ -489,19 +491,19 @@ Dati sugli slot disponibili: {slot_context}"""
             FlowsFunctionSchema(
                 name="select_slot",
                 handler=select_slot_and_book,
-                description="Seleziona uno slot di appuntamento specifico fornendo l'UUID dello slot",
+                description="Select a specific appointment slot by providing the slot UUID",
                 properties={
                     "providing_entity_availability_uuid": {
                         "type": "string",
-                        "description": "UUID della disponibilità dell'entità fornitrice dello slot selezionato"
+                        "description": "UUID of the providing entity availability for the selected slot"
                     },
                     "selected_time": {
                         "type": "string",
-                        "description": "Orario leggibile dello slot selezionato (ad es., '09:30 - 10:00')"
+                        "description": "Readable time of the selected slot (e.g., '09:30 - 10:00')"
                     },
                     "selected_date": {
                         "type": "string",
-                        "description": "Data leggibile dello slot selezionato (ad es., '21 novembre 2025')"
+                        "description": "Readable date of the selected slot (e.g., '21 November 2025')"
                     }
                 },
                 required=["providing_entity_availability_uuid"]
@@ -516,21 +518,21 @@ def create_booking_creation_node() -> NodeConfig:
         name="booking_creation",
         role_messages=[{
             "role": "system",
-            "content": "Conferma i dettagli della prenotazione e crea l'appuntamento."
+            "content": f"Confirm booking details and create the appointment. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Perfetto! Sono pronto a prenotare il tuo appuntamento. Per favore conferma se vuoi procedere con questa prenotazione."
+            "content": "Perfect! I'm ready to book your appointment. Please confirm if you want to proceed with this booking."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="create_booking",
                 handler=create_booking_and_transition,
-                description="Crea la prenotazione dell'appuntamento",
+                description="Create the appointment booking",
                 properties={
                     "confirm_booking": {
                         "type": "boolean",
-                        "description": "Conferma per procedere con la prenotazione (vero/falso)"
+                        "description": "Confirmation to proceed with booking (true/false)"
                     }
                 },
                 required=["confirm_booking"]
@@ -545,17 +547,17 @@ def create_slot_refresh_node(service_name: str) -> NodeConfig:
         name="slot_refresh",
         role_messages=[{
             "role": "system",
-            "content": f"Lo slot selezionato per {service_name} non è più disponibile. Cerca nuovi slot disponibili e presentali al paziente. Sii apologetico e utile."
+            "content": f"The selected slot for {service_name} is no longer available. Search for new available slots and present them to the patient. Be apologetic and helpful. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": f"Mi scuso, ma quello slot orario per {service_name} è stato appena prenotato da qualcun altro. Lascia che cerchi altri orari disponibili per te."
+            "content": f"I apologize, but that time slot for {service_name} was just booked by someone else. Let me search for other available times for you."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="search_slots",
                 handler=search_slots_and_transition,
-                description="Cerca slot disponibili aggiornati",
+                description="Search for updated available slots",
                 properties={},
                 required=[]
             )
@@ -567,15 +569,15 @@ def create_slot_refresh_node(service_name: str) -> NodeConfig:
 def create_no_slots_node(date: str, time_preference: str = "any time") -> NodeConfig:
     """Create node when no slots are available - with human-like alternative suggestions"""
     if time_preference == "any time":
-        no_slots_message = f"Mi dispiace, non ci sono posti disponibili per il giorno {date}. Vorrei suggerirti delle alternative: vorresti provare una data diversa? Posso anche verificare se ci sono posti disponibili in date vicine, ad esempio qualche giorno prima o qualche giorno dopo."
+        no_slots_message = f"I'm sorry, there are no available slots for {date}. I'd like to suggest some alternatives: would you like to try a different date? I can also check if there are available slots on nearby dates, for example a few days before or after."
     else:
-        no_slots_message = f"Mi dispiace, non ci sono posti disponibili per il giorno {date} per il giorno {time_preference}. Vorrei suggerirti alcune alternative: vorresti provare una data o un orario diverso? Ad esempio, potremmo avere posti disponibili per il giorno {date} a un orario diverso o in un'altra data."
+        no_slots_message = f"I'm sorry, there are no available slots for {date} for {time_preference}. I'd like to suggest some alternatives: would you like to try a different date or time? For example, we might have available slots for {date} at a different time or on another date."
     
     return NodeConfig(
         name="no_slots_available",
         role_messages=[{
             "role": "system",
-            "content": "Siamo nel 2025. Quando non ci sono slot disponibili, sii disponibile e suggerisci alternative in modo umano. Offriti di cercare date o orari diversi. Non menzionare mai dettagli tecnici o UUID. Dì sempre 'euro' invece del simbolo €."
+            "content": f"We are in 2025. When there are no available slots, be helpful and suggest alternatives in a human way. Offer to search for different dates or times. Never mention technical details or UUIDs. Always say 'euros' instead of the € symbol. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -589,18 +591,176 @@ def create_no_slots_node(date: str, time_preference: str = "any time") -> NodeCo
                 properties={
                     "preferred_date": {
                         "type": "string",
-                        "description": "Nuova data di appuntamento preferita nel formato YYYY-MM-DD "
+                        "description": "New preferred appointment date in YYYY-MM-DD format"
                     },
                     "preferred_time": {
                         "type": "string",
-                        "description": "Nuovo orario preferito per l'appuntamento (orario specifico come '09:00', '14:30' o intervallo di tempo come 'mattina', 'pomeriggio')"
+                        "description": "New preferred appointment time (specific time like '09:00', '14:30' or time range like 'morning', 'afternoon')"
                     },
                     "time_preference": {
                         "type": "string",
-                        "description": "Preferenza oraria: 'mattina' (8:00-12:00), 'pomeriggio' (12:00-19:00), 'specifico' (orario esatto) o 'qualsiasi' (nessuna preferenza)"
+                        "description": "Time preference: 'morning' (8:00-12:00), 'afternoon' (12:00-19:00), 'specific' (exact time) or 'any' (no preference)"
                     }
                 },
                 required=["preferred_date"]
+            )
+        ]
+    )
+
+
+def create_booking_summary_confirmation_node(selected_services: List[HealthService], selected_slots: List[Dict], selected_center: HealthCenter, total_cost: float, is_cerba_member: bool = False) -> NodeConfig:
+    """Create booking summary confirmation node with all details before personal info collection"""
+
+    # Format service details
+    services_text = []
+    for i, service in enumerate(selected_services):
+        if i < len(selected_slots):
+            slot = selected_slots[i]
+            # Parse slot time
+            start_time_str = slot["start_time"].replace("T", " ").replace("+00:00", "")
+            start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+            formatted_date = start_dt.strftime("%d %B %Y")
+            formatted_time = start_dt.strftime("%-H:%M")
+
+            service_cost = slot.get('price', 0)
+            services_text.append(f"• {service.name} on {formatted_date} at {formatted_time} - {int(service_cost)} euros")
+
+    services_summary = "\n".join(services_text)
+
+    # Create summary content
+    membership_text = " (with Cerba Card discount)" if is_cerba_member else ""
+
+    summary_content = f"""Here's a summary of your booking:
+
+**Services:**
+{services_summary}
+
+**Health Center:**
+{selected_center.name}
+{selected_center.address}, {selected_center.city}
+
+**Total Cost:** {int(total_cost)} euros{membership_text}
+
+Would you like to proceed with this booking? If yes, I'll just need to collect some personal information to complete your appointment. If the cost is too high or you'd like to change anything, just let me know."""
+
+    return NodeConfig(
+        name="booking_summary_confirmation",
+        role_messages=[{
+            "role": "system",
+            "content": f"Booking hasn't been done yet. This is only the summary of booking after that we will collect personal details and then confirm the booking. Present a clear summary of the booking including services, location, time, and total cost. Ask for confirmation before proceeding to personal information collection. If the patient wants to cancel or change something, be helpful and offer alternatives. {settings.language_config}"
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": summary_content
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="confirm_booking_summary",
+                handler=confirm_booking_summary_and_proceed,
+                description="Confirm the booking summary and proceed to personal info collection or handle changes",
+                properties={
+                    "action": {
+                        "type": "string",
+                        "enum": ["proceed", "cancel", "change"],
+                        "description": "proceed to continue with booking, cancel to stop, change to modify booking"
+                    }
+                },
+                required=["action"]
+            )
+        ]
+    )
+
+def create_center_search_processing_node(address: str, tts_message: str) -> NodeConfig:
+    """Create a processing node that speaks immediately before performing center search"""
+    from flows.handlers.booking_handlers import perform_center_search_and_transition
+
+    return NodeConfig(
+        name="center_search_processing",
+        pre_actions=[
+            {
+                "type": "tts_say",
+                "text": tts_message
+            }
+        ],
+        role_messages=[{
+            "role": "system",
+            "content": f"You are processing health center search in {address}. Immediately call perform_center_search to execute the actual search. {settings.language_config}"
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": f"Now searching for health centers in {address} that provide all selected services. Please wait."
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="perform_center_search",
+                handler=perform_center_search_and_transition,
+                description="Execute the actual center search after TTS message",
+                properties={},
+                required=[]
+            )
+        ]
+    )
+
+
+def create_slot_search_processing_node(service_name: str, tts_message: str) -> NodeConfig:
+    """Create a processing node that speaks immediately before performing slot search"""
+    from flows.handlers.booking_handlers import perform_slot_search_and_transition
+
+    return NodeConfig(
+        name="slot_search_processing",
+        pre_actions=[
+            {
+                "type": "tts_say",
+                "text": tts_message
+            }
+        ],
+        role_messages=[{
+            "role": "system",
+            "content": f"You are processing slot search for {service_name}. Immediately call perform_slot_search to execute the actual search. {settings.language_config}"
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": f"Now searching for available appointment slots for {service_name}. Please wait."
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="perform_slot_search",
+                handler=perform_slot_search_and_transition,
+                description="Execute the actual slot search after TTS message",
+                properties={},
+                required=[]
+            )
+        ]
+    )
+
+
+def create_slot_booking_processing_node(service_name: str, tts_message: str) -> NodeConfig:
+    """Create a processing node that speaks immediately before performing slot booking"""
+    from flows.handlers.booking_handlers import perform_slot_booking_and_transition
+
+    return NodeConfig(
+        name="slot_booking_processing",
+        pre_actions=[
+            {
+                "type": "tts_say",
+                "text": tts_message
+            }
+        ],
+        role_messages=[{
+            "role": "system",
+            "content": f"You are processing slot booking for {service_name}. Immediately call perform_slot_booking to execute the actual booking. {settings.language_config}"
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": f"Now booking the selected time slot for {service_name}. Please wait for confirmation."
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="perform_slot_booking",
+                handler=perform_slot_booking_and_transition,
+                description="Execute the actual slot booking after TTS message",
+                properties={},
+                required=[]
             )
         ]
     )

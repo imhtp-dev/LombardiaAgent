@@ -37,17 +37,58 @@ async def search_final_centers_and_transition(args: FlowArgs, flow_manager: Flow
         
         logger.info(f"🏥 Final center search: services={service_names}, gender={gender}, dob={date_of_birth}, address={address}")
         
-        # Make agent speak during center search
+        # Store center search parameters for processing node
+        flow_manager.state["pending_center_search_params"] = {
+            "selected_services": selected_services,
+            "service_uuids": service_uuids,
+            "service_names": service_names,
+            "gender": gender,
+            "date_of_birth": date_of_birth,
+            "address": address
+        }
+
+        # Create message based on service count
         if len(service_names) == 1:
             center_search_status_text = f"Sto cercando centri sanitari a {address} che forniscano {service_names[0]}. Attendi..."
         else:
             center_search_status_text = f"Sto cercando centri sanitari a {address} che offrano tutti i servizi selezionati. Attendi..."
-        
-        # Push TTSSpeakFrame to make agent speak immediately
-        from pipecat.frames.frames import TTSSpeakFrame
-        if flow_manager.task:
-            await flow_manager.task.queue_frames([TTSSpeakFrame(text=center_search_status_text)])
-        
+
+        # Create intermediate node with pre_actions for immediate TTS
+        from flows.nodes.booking import create_center_search_processing_node
+        return {
+            "success": True,
+            "message": f"Starting center search in {address}"
+        }, create_center_search_processing_node(address, center_search_status_text)
+
+    except Exception as e:
+        logger.error(f"❌ Center search initialization error: {e}")
+        from flows.nodes.completion import create_error_node
+        return {
+            "success": False,
+            "message": "Center search failed. Please try again."
+        }, create_error_node("Center search failed. Please try again.")
+
+
+async def perform_center_search_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Perform the actual center search after TTS message"""
+    try:
+        # Get stored center search parameters
+        params = flow_manager.state.get("pending_center_search_params", {})
+        if not params:
+            from flows.nodes.completion import create_error_node
+            return {
+                "success": False,
+                "message": "Missing center search parameters"
+            }, create_error_node("Missing center search parameters. Please start over.")
+
+        # Extract parameters
+        selected_services = params["selected_services"]
+        service_uuids = params["service_uuids"]
+        service_names = params["service_names"]
+        gender = params["gender"]
+        date_of_birth = params["date_of_birth"]
+        address = params["address"]
+
         # Format date for API
         dob_formatted = date_of_birth.replace("-", "")
         
@@ -243,18 +284,67 @@ async def search_slots_and_transition(args: FlowArgs, flow_manager: FlowManager)
         
         # Get current service being processed
         current_service = selected_services[current_service_index]
-        
-        # Make agent speak status message during function execution
+
+        # Store slot search parameters for processing node
+        flow_manager.state["pending_slot_search_params"] = {
+            "selected_center": selected_center,
+            "selected_services": selected_services,
+            "preferred_date": preferred_date,
+            "start_time": start_time,
+            "end_time": end_time,
+            "time_preference": time_preference,
+            "patient_gender": patient_gender,
+            "patient_dob": patient_dob,
+            "current_service_index": current_service_index,
+            "current_service": current_service
+        }
+
+        # Create status message based on service count
         if len(selected_services) > 1:
             status_text = f"Ricerca di slot disponibili per {current_service.name}, servizio {current_service_index + 1} di {len(selected_services)}. Attendi..."
         else:
             status_text = f"Ricerca di slot disponibili per {current_service.name}. Attendi..."
-        
-        # Push TTSSpeakFrame to make agent speak immediately
-        from pipecat.frames.frames import TTSSpeakFrame
-        if flow_manager.task:
-            await flow_manager.task.queue_frames([TTSSpeakFrame(text=status_text)])
-        
+
+        # Create intermediate node with pre_actions for immediate TTS
+        from flows.nodes.booking import create_slot_search_processing_node
+        return {
+            "success": True,
+            "message": f"Starting slot search for {current_service.name}"
+        }, create_slot_search_processing_node(current_service.name, status_text)
+
+    except Exception as e:
+        logger.error(f"❌ Slot search initialization error: {e}")
+        from flows.nodes.completion import create_error_node
+        return {
+            "success": False,
+            "message": "Slot search failed. Please try again."
+        }, create_error_node("Slot search failed. Please try again.")
+
+
+async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Perform the actual slot search after TTS message"""
+    try:
+        # Get stored slot search parameters
+        params = flow_manager.state.get("pending_slot_search_params", {})
+        if not params:
+            from flows.nodes.completion import create_error_node
+            return {
+                "success": False,
+                "message": "Missing slot search parameters"
+            }, create_error_node("Missing slot search parameters. Please start over.")
+
+        # Extract parameters
+        selected_center = params["selected_center"]
+        selected_services = params["selected_services"]
+        preferred_date = params["preferred_date"]
+        start_time = params["start_time"]
+        end_time = params["end_time"]
+        time_preference = params["time_preference"]
+        patient_gender = params["patient_gender"]
+        patient_dob = params["patient_dob"]
+        current_service_index = params["current_service_index"]
+        current_service = params["current_service"]
+
         # Format date of birth for API (remove dashes)
         dob_formatted = patient_dob.replace("-", "")
         
@@ -337,13 +427,38 @@ async def select_slot_and_book(args: FlowArgs, flow_manager: FlowManager) -> Tup
         flow_manager.state["slot_price"] = price
     
     logger.info(f"🎯 Slot selected: {selected_slot['start_time']} to {selected_slot['end_time']}")
-    
-    from flows.nodes.booking import create_booking_creation_node
+
+    # Get required data for booking summary
+    selected_services = flow_manager.state.get("selected_services", [])
+    selected_center = flow_manager.state.get("selected_center")
+
+    if not selected_services or not selected_center:
+        return {"success": False, "message": "Missing booking information"}, None
+
+    # Calculate total cost
+    total_cost = 0
+    selected_slots = [selected_slot]  # For now, single slot
+
+    for service_data in health_services:
+        price = service_data.get("cerba_card_price") if is_cerba_member else service_data.get("price", 0)
+        total_cost += price
+
+    # Store booked slots info for final booking
+    flow_manager.state["booked_slots"] = [{
+        "slot_uuid": providing_entity_availability_uuid,
+        "start_time": selected_slot["start_time"],
+        "end_time": selected_slot["end_time"],
+        "price": total_cost,
+        "service_name": selected_services[0].name if selected_services else "Unknown Service"
+    }]
+
+    # Go to booking summary confirmation
+    from flows.nodes.booking import create_booking_summary_confirmation_node
     return {
         "success": True,
         "slot_time": f"{selected_slot['start_time']} to {selected_slot['end_time']}",
         "providing_entity_availability_uuid": providing_entity_availability_uuid
-    }, create_booking_creation_node()
+    }, create_booking_summary_confirmation_node(selected_services, selected_slots, selected_center, total_cost, is_cerba_member)
 
 
 async def create_booking_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -363,15 +478,50 @@ async def create_booking_and_transition(args: FlowArgs, flow_manager: FlowManage
             from flows.nodes.completion import create_error_node
             return {"success": False, "message": "No slot selected"}, create_error_node("No slot selected.")
         
-        # Make agent speak during slot creation
+        # Store slot booking parameters for processing node
+        flow_manager.state["pending_slot_booking_params"] = {
+            "selected_slot": selected_slot,
+            "selected_services": selected_services,
+            "current_service_index": current_service_index
+        }
+
+        # Create status message
         current_service_name = selected_services[current_service_index].name if current_service_index < len(selected_services) else "your appointment"
         slot_creation_status_text = f"Prenotazione della fascia oraria per {current_service_name}. Attendi..."
-        
-        # Push TTSSpeakFrame to make agent speak immediately
-        from pipecat.frames.frames import TTSSpeakFrame
-        if flow_manager.task:
-            await flow_manager.task.queue_frames([TTSSpeakFrame(text=slot_creation_status_text)])
-        
+
+        # Create intermediate node with pre_actions for immediate TTS
+        from flows.nodes.booking import create_slot_booking_processing_node
+        return {
+            "success": True,
+            "message": f"Starting slot booking for {current_service_name}"
+        }, create_slot_booking_processing_node(current_service_name, slot_creation_status_text)
+
+    except Exception as e:
+        logger.error(f"❌ Slot booking initialization error: {e}")
+        from flows.nodes.completion import create_error_node
+        return {
+            "success": False,
+            "message": "Slot booking failed. Please try again."
+        }, create_error_node("Slot booking failed. Please try again.")
+
+
+async def perform_slot_booking_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Perform the actual slot booking after TTS message"""
+    try:
+        # Get stored slot booking parameters
+        params = flow_manager.state.get("pending_slot_booking_params", {})
+        if not params:
+            from flows.nodes.completion import create_error_node
+            return {
+                "success": False,
+                "message": "Missing slot booking parameters"
+            }, create_error_node("Missing slot booking parameters. Please start over.")
+
+        # Extract parameters
+        selected_slot = params["selected_slot"]
+        selected_services = params["selected_services"]
+        current_service_index = params["current_service_index"]
+
         # Extract booking details
         start_time = selected_slot["start_time"]
         end_time = selected_slot["end_time"]
@@ -514,3 +664,41 @@ async def handle_booking_modification(args: FlowArgs, flow_manager: FlowManager)
     
     else:
         return {"success": False, "message": "Please specify 'cancel' or 'change_time'"}, None
+
+
+async def confirm_booking_summary_and_proceed(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Handle booking summary confirmation and proceed accordingly"""
+    action = args.get("action", "")
+
+    if action == "proceed":
+        logger.info("✅ Booking summary confirmed, proceeding to collect personal information")
+
+        # Transition to name collection to start personal info gathering
+        from flows.nodes.patient_details import create_collect_name_node
+        return {
+            "success": True,
+            "message": "Booking confirmed, starting personal information collection"
+        }, create_collect_name_node()
+
+    elif action == "cancel":
+        logger.info("❌ Patient cancelled booking due to cost/preferences")
+
+        # Go to restart/cancellation flow
+        from flows.nodes.completion import create_restart_node
+        return {
+            "success": False,
+            "message": "Booking cancelled as requested"
+        }, create_restart_node()
+
+    elif action == "change":
+        logger.info("🔄 Patient wants to change booking details")
+
+        # Go back to service search to start over
+        from flows.nodes.greeting import create_greeting_node
+        return {
+            "success": False,
+            "message": "Let's help you find a different service or time"
+        }, create_greeting_node()
+
+    else:
+        return {"success": False, "message": "Please let me know if you want to proceed, cancel, or change the booking"}, None

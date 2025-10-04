@@ -9,6 +9,7 @@ from pipecat_flows import NodeConfig, FlowsFunctionSchema
 from models.requests import HealthService, HealthCenter
 from flows.handlers.service_handlers import search_health_services_and_transition
 from flows.handlers.booking_handlers import handle_booking_modification
+from config.settings import settings
 
 
 def create_error_node(error_message: str) -> NodeConfig:
@@ -17,21 +18,21 @@ def create_error_node(error_message: str) -> NodeConfig:
         name="booking_error",
         role_messages=[{
             "role": "system",
-            "content": "Gestisci l'errore con rammarico e offri alternative utili. Sii empatico e fornisci passaggi chiari."
+            "content": f"Handle the error with regret and offer helpful alternatives. Be empathetic and provide clear steps. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": f"{error_message} Mi scuso sinceramente per questo inconveniente. Vorresti provare a prenotare di nuovo o cercare un servizio diverso?"
+            "content": f"{error_message} I sincerely apologize for this inconvenience. Would you like to try booking again or search for a different service?"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="search_health_services",
                 handler=search_health_services_and_transition,
-                description="Riavvia il processo di prenotazione",
+                description="Restart the booking process",
                 properties={
                     "search_term": {
                         "type": "string",
-                        "description": "Nome del servizio da cercare per riavviare la prenotazione"
+                        "description": "Name of the service to search for to restart booking"
                     }
                 },
                 required=["search_term"]
@@ -56,24 +57,24 @@ def create_booking_success_multi_node(booked_slots: List[Dict], total_price: flo
         start_time = start_dt.strftime("%-H:%M")
         end_time = end_dt.strftime("%-H:%M")
         
-        booking_text = f"Hai prenotato {slot['service_name']} per il {formatted_date} dalle {start_time} alle {end_time} e questo appuntamento costa {int(slot['price'])} euro"
+        booking_text = f"You have booked {slot['service_name']} for {formatted_date} from {start_time} to {end_time} and this appointment costs {int(slot['price'])} euros"
         bookings_text.append(booking_text)
     
     bookings_summary = "\n\n".join(bookings_text)
     
-    task_content = f"""Ottime notizie! I tuoi appuntamenti sono confermati.
+    task_content = f"""Great news! Your appointments are confirmed.
 
 {bookings_summary}
 
-Il costo totale dei tuoi appuntamenti è {int(total_price)} euro.
+The total cost of your appointments is {int(total_price)} euros.
 
-Le tue prenotazioni sono confermate e riceverai i dettagli di conferma a breve. Puoi dire cancella prenotazione per cancellare, cambia orario per riprogrammare, o inizia una nuova prenotazione."""
+Your bookings are confirmed and you will receive confirmation details shortly. You can say cancel booking to cancel, change time to reschedule, or start a new booking."""
     
     return NodeConfig(
         name="booking_success_multi",
         role_messages=[{
             "role": "system",
-            "content": "Siamo attualmente nel 2025. Celebra le prenotazioni riuscite in modo caloroso e umano. Di' sempre 'euro' invece di usare il simbolo €. Parla naturalmente come un assistente amichevole."
+            "content": f"We are currently in 2025. Celebrate successful bookings in a warm and human way. Always say 'euros' instead of using the € symbol. Speak naturally like a friendly assistant. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -83,11 +84,11 @@ Le tue prenotazioni sono confermate e riceverai i dettagli di conferma a breve. 
             FlowsFunctionSchema(
                 name="manage_booking",
                 handler=handle_booking_modification,
-                description="Cancella o modifica prenotazioni esistenti",
+                description="Cancel or modify existing bookings",
                 properties={
                     "action": {
                         "type": "string",
-                        "description": "Azione da intraprendere: 'cancel' per cancellare la prenotazione, 'change_time' per riprogrammare"
+                        "description": "Action to take: 'cancel' to cancel the booking, 'change_time' to reschedule"
                     }
                 },
                 required=["action"]
@@ -95,11 +96,11 @@ Le tue prenotazioni sono confermate e riceverai i dettagli di conferma a breve. 
             FlowsFunctionSchema(
                 name="start_new_booking",
                 handler=search_health_services_and_transition,
-                description="Inizia un nuovo processo di prenotazione",
+                description="Start a new booking process",
                 properties={
                     "search_term": {
                         "type": "string",
-                        "description": "Nome del servizio da cercare per una nuova prenotazione"
+                        "description": "Name of the service to search for a new booking"
                     }
                 },
                 required=["search_term"]
@@ -114,21 +115,21 @@ def create_restart_node() -> NodeConfig:
         name="restart_booking",
         role_messages=[{
             "role": "system",
-            "content": "Gestisci la cancellazione della prenotazione e offri di riavviare."
+            "content": f"Handle booking cancellation and offer to restart. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "Nessun problema! La tua prenotazione è stata cancellata. Vorresti iniziare una nuova prenotazione per un servizio diverso o riprovare?"
+            "content": "No problem! Your booking has been cancelled. Would you like to start a new booking for a different service or try again?"
         }],
         functions=[
             FlowsFunctionSchema(
                 name="search_health_services",
                 handler=search_health_services_and_transition,
-                description="Inizia un nuovo processo di prenotazione",
+                description="Start a new booking process",
                 properties={
                     "search_term": {
                         "type": "string",
-                        "description": "Nome del servizio da cercare"
+                        "description": "Name of the service to search for"
                     }
                 },
                 required=["search_term"]

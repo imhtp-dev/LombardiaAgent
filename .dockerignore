@@ -36,6 +36,9 @@ cache/
 # Extra folders
 extra/
 
+# Bridge connection folder (hosted separately on Azure)
+talkdeskbridge/
+
 # Build artifacts
 build/
 dist/
@@ -55,8 +58,32 @@ docker-compose*.yml
 tests/
 *_test.py
 test_*.py
+test.py
 
 # Large data files
 *.json
 !requirements*.txt
 city_codes.json
+
+# Additional Python and development files
+.pytest_cache/
+.coverage
+.mypy_cache/
+.tox/
+.nox/
+htmlcov/
+*.cover
+
+# Node modules (if any)
+node_modules/
+
+# Audio/video files
+*.wav
+*.mp3
+*.mp4
+
+# System files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

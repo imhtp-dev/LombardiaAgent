@@ -11,15 +11,15 @@ from services.fiscal_code_generator import fiscal_code_generator
 
 async def start_email_collection_with_stt_switch(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
     """Handler for starting email collection with STT switch - used when testing email node directly"""
-    # Switch to email transcription mode
-    from utils.stt_switcher import switch_to_email_transcription
-    await switch_to_email_transcription()
+    # STT SWITCHING DISABLED FOR TESTING - keep using Nova-2
+    # from utils.stt_switcher import switch_to_email_transcription
+    # await switch_to_email_transcription()
 
     # Transition to email collection
     from flows.nodes.patient_details import create_collect_email_node
     return {
         "success": True,
-        "message": "Starting email collection with Nova-3 transcription"
+        "message": "Starting email collection with Nova-2 transcription"
     }, create_collect_email_node()
 
 
@@ -28,7 +28,7 @@ async def collect_name_and_transition(args: FlowArgs, flow_manager: FlowManager)
     name = args.get("name", "").strip()
 
     if not name or len(name) < 1:
-        return {"success": False, "message": "Per favore fornisci il tuo nome"}, None
+        return {"success": False, "message": "Please provide your name"}, None
 
     # Store name in state
     flow_manager.state["patient_name"] = name
@@ -48,7 +48,7 @@ async def collect_surname_and_transition(args: FlowArgs, flow_manager: FlowManag
     surname = args.get("surname", "").strip()
 
     if not surname or len(surname) < 1:
-        return {"success": False, "message": "Per favore fornisci il tuo cognome"}, None
+        return {"success": False, "message": "Please provide your surname"}, None
 
     # Store surname in state
     flow_manager.state["patient_surname"] = surname
@@ -64,33 +64,71 @@ async def collect_surname_and_transition(args: FlowArgs, flow_manager: FlowManag
 
 
 async def collect_phone_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Collect patient phone and transition to email collection"""
-    phone = args.get("phone", "").strip()
+    """Collect patient phone and transition to phone confirmation"""
+    phone = args.get("phone", "").strip().lower()
 
-    if not phone or len(phone) < 8:
-        return {"success": False, "message": "Please provide a valid phone number"}, None
+    # Check if user confirmed to use the calling number
+    caller_phone_from_talkdesk = flow_manager.state.get("caller_phone_from_talkdesk", "")
 
-    # Clean phone number (remove spaces, dashes, etc.)
-    phone_clean = ''.join(filter(str.isdigit, phone))
+    # If user says "yes" and we have caller phone from Talkdesk, use it
+    if phone in ["yes", "si", "sì", "correct", "okay", "ok", "va bene"] and caller_phone_from_talkdesk:
+        phone_clean = ''.join(filter(str.isdigit, caller_phone_from_talkdesk))
+        logger.info(f"📞 Using caller's phone number from Talkdesk: {phone_clean}")
+    else:
+        # User provided a different phone number
+        if not phone or len(phone) < 8:
+            return {"success": False, "message": "Please provide a valid phone number"}, None
 
-    if len(phone_clean) < 8:
-        return {"success": False, "message": "Please provide a valid phone number with at least 8 digits"}, None
+        # Clean phone number (remove spaces, dashes, etc.)
+        phone_clean = ''.join(filter(str.isdigit, phone))
+
+        if len(phone_clean) < 8:
+            return {"success": False, "message": "Please provide a valid phone number with at least 8 digits"}, None
+
+        logger.info(f"📞 Patient provided different phone: {phone_clean}")
 
     # Store phone in state
     flow_manager.state["patient_phone"] = phone_clean
 
     logger.info(f"📞 Patient phone collected: {phone_clean}")
 
-    # Switch to email transcription mode before transitioning to email node
-    from utils.stt_switcher import switch_to_email_transcription
-    await switch_to_email_transcription()
-
-    from flows.nodes.patient_details import create_collect_email_node
+    # Go to phone confirmation
+    from flows.nodes.patient_details import create_confirm_phone_node
     return {
         "success": True,
         "phone": phone_clean,
         "message": "Phone number collected successfully"
-    }, create_collect_email_node()
+    }, create_confirm_phone_node(phone_clean)
+
+
+async def confirm_phone_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Confirm phone number and transition to email collection"""
+    action = args.get("action", "")
+
+    if action == "confirm":
+        logger.info("✅ Phone confirmed, proceeding to email collection")
+
+        # STT SWITCHING DISABLED FOR TESTING - keep using Nova-2
+        # from utils.stt_switcher import switch_to_email_transcription
+        # await switch_to_email_transcription()
+
+        from flows.nodes.patient_details import create_collect_email_node
+        return {
+            "success": True,
+            "message": "Phone confirmed, proceeding to email collection"
+        }, create_collect_email_node()
+
+    elif action == "change":
+        logger.info("🔄 Phone needs to be changed, returning to phone collection")
+
+        from flows.nodes.patient_details import create_collect_phone_node
+        return {
+            "success": False,
+            "message": "Let's collect your phone number again"
+        }, create_collect_phone_node()
+
+    else:
+        return {"success": False, "message": "Please confirm if the phone number is correct or if you want to change it"}, None
 
 
 async def collect_email_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -98,17 +136,17 @@ async def collect_email_and_transition(args: FlowArgs, flow_manager: FlowManager
     email = args.get("email", "").strip().lower()
 
     if not email or "@" not in email or "." not in email:
-        return {"success": False, "message": "Per favore fornisci un indirizzo email valido. Assicurati di includere @ e un dominio."}, None
+        return {"success": False, "message": "Please provide a valid email address. Make sure to include @ and a domain."}, None
 
     # Enhanced email validation
     email_parts = email.split("@")
     if len(email_parts) != 2 or len(email_parts[0]) < 1 or len(email_parts[1]) < 3:
-        return {"success": False, "message": "Formato email non valido. Per favore riprova con un email completa."}, None
+        return {"success": False, "message": "Invalid email format. Please try again with a complete email."}, None
 
     # Additional validation for common email patterns
     domain_part = email_parts[1]
     if "." not in domain_part or domain_part.startswith(".") or domain_part.endswith("."):
-        return {"success": False, "message": "Il dominio dell'email non è valido. Per favore riprova."}, None
+        return {"success": False, "message": "The email domain is not valid. Please try again."}, None
 
     # Clean up common speech-to-text errors
     email = email.replace(" ", "").replace("punto", ".").replace(" at ", "@").replace(" chiocciola ", "@")
@@ -122,28 +160,29 @@ async def collect_email_and_transition(args: FlowArgs, flow_manager: FlowManager
     return {
         "success": True,
         "email": email,
-        "message": "Email raccolta con successo"
+        "message": "Email collected successfully"
     }, create_confirm_email_node(email)
 
 
 async def confirm_email_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Confirm email address and transition to reminder authorization (skip fiscal code collection)"""
+    """Confirm email address and transition directly to reminder authorization (skip bulk verification)"""
     action = args.get("action", "")
 
     if action == "confirm":
         logger.info("✅ Email confirmed, generating fiscal code and proceeding to reminder authorization")
 
-        # Switch back to default transcription mode after email is confirmed
-        from utils.stt_switcher import switch_to_default_transcription
-        await switch_to_default_transcription()
+        # STT SWITCHING DISABLED FOR TESTING - keep using Nova-2
+        # from utils.stt_switcher import switch_to_default_transcription
+        # await switch_to_default_transcription()
 
         # Generate fiscal code from collected data
         await generate_fiscal_code_from_state(flow_manager)
 
+        # Go directly to reminder authorization (skip bulk verification)
         from flows.nodes.patient_details import create_collect_reminder_authorization_node
         return {
             "success": True,
-            "message": "Email confirmed, fiscal code generated"
+            "message": "Email confirmed, fiscal code generated, proceeding to authorization questions"
         }, create_collect_reminder_authorization_node()
 
     elif action == "change":
@@ -218,29 +257,17 @@ async def collect_reminder_authorization_and_transition(args: FlowArgs, flow_man
 
 
 async def collect_marketing_authorization_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Collect marketing authorization and transition to details confirmation"""
+    """Collect marketing authorization and proceed directly to booking completion"""
     marketing_auth = args.get("marketing_authorization", False)
 
     # Store marketing authorization in state
     flow_manager.state["marketing_authorization"] = marketing_auth
 
     logger.info(f"📢 Marketing authorization: {'Yes' if marketing_auth else 'No'}")
+    logger.info("✅ All patient details collected, proceeding directly to final booking")
 
-    # Prepare patient details for confirmation (no fiscal code shown - it's generated silently)
-    patient_details = {
-        "name": flow_manager.state.get("patient_name", ""),
-        "surname": flow_manager.state.get("patient_surname", ""),
-        "phone": flow_manager.state.get("patient_phone", ""),
-        "email": flow_manager.state.get("patient_email", "")
-        # Note: fiscal_code is generated and stored but not shown to patient
-    }
-
-    from flows.nodes.patient_details import create_confirm_patient_details_node
-    return {
-        "success": True,
-        "marketing_authorization": marketing_auth,
-        "message": "Marketing preference collected"
-    }, create_confirm_patient_details_node(patient_details)
+    # Skip bulk verification - proceed directly to booking creation
+    return await confirm_details_and_create_booking({"details_confirmed": True}, flow_manager)
 
 
 async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -280,12 +307,63 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
         }, create_error_node("Missing required information for booking. Please start over.")
 
     try:
-        # Make agent speak during booking creation
+        # Store booking parameters for processing node
+        flow_manager.state["pending_booking_params"] = {
+            "selected_services": selected_services,
+            "booked_slots": booked_slots,
+            "patient_name": patient_name,
+            "patient_surname": patient_surname,
+            "patient_phone": patient_phone,
+            "patient_email": patient_email,
+            "patient_fiscal_code": patient_fiscal_code,
+            "patient_gender": patient_gender,
+            "patient_dob": patient_dob,
+            "reminder_auth": reminder_auth,
+            "marketing_auth": marketing_auth
+        }
+
+        # Create intermediate node with pre_actions for immediate TTS
         booking_status_text = "Creazione della prenotazione con tutti i dettagli forniti. Attendi..."
 
-        from pipecat.frames.frames import TTSSpeakFrame
-        if flow_manager.task:
-            await flow_manager.task.queue_frames([TTSSpeakFrame(text=booking_status_text)])
+        from flows.nodes.patient_details import create_booking_processing_node
+        return {
+            "success": True,
+            "message": "Starting booking creation"
+        }, create_booking_processing_node(booking_status_text)
+
+    except Exception as e:
+        logger.error(f"❌ Booking creation initialization error: {e}")
+        from flows.nodes.completion import create_error_node
+        return {
+            "success": False,
+            "message": "Booking creation failed. Please try again."
+        }, create_error_node("Booking creation failed. Please try again.")
+
+
+async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Perform the actual booking creation after TTS message"""
+    try:
+        # Get stored booking parameters
+        params = flow_manager.state.get("pending_booking_params", {})
+        if not params:
+            from flows.nodes.completion import create_error_node
+            return {
+                "success": False,
+                "message": "Missing booking parameters"
+            }, create_error_node("Missing booking parameters. Please start over.")
+
+        # Extract parameters
+        selected_services = params["selected_services"]
+        booked_slots = params["booked_slots"]
+        patient_name = params["patient_name"]
+        patient_surname = params["patient_surname"]
+        patient_phone = params["patient_phone"]
+        patient_email = params["patient_email"]
+        patient_fiscal_code = params["patient_fiscal_code"]
+        patient_gender = params["patient_gender"]
+        patient_dob = params["patient_dob"]
+        reminder_auth = params["reminder_auth"]
+        marketing_auth = params["marketing_auth"]
 
         # Import and call booking service
         from services.booking_api import create_booking
