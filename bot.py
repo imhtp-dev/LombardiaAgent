@@ -38,7 +38,7 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 
-from pipecat.transports.network.fastapi_websocket import (
+from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
@@ -253,10 +253,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         stop_secs=settings.vad_config["stop_secs"],
                         min_volume=settings.vad_config["min_volume"]
                     )
-                )
                 ),
-                serializer=RawPCMSerializer(),
+                serializer=RawPCMSerializer(),  # EXACT SAME AS APP.PY
                 session_timeout=900,
+                )
             )
         
 

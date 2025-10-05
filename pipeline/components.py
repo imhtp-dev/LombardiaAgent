@@ -35,8 +35,9 @@ def create_stt_service() -> DeepgramSTTService:
                 punctuate=config["punctuate"],
                 vad_events=config["vad_events"],
                 profanity_filter=config["profanity_filter"],
-                numerals=config["numerals"],
-                keywords=config["keywords"]
+                numerals=config["numerals"]
+                # Note: keyterms not yet supported in current Pipecat LiveOptions
+                # Will be added in future Pipecat version for Nova-3
             )
         )
 

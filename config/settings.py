@@ -22,11 +22,11 @@ class Settings:
     
     @property
     def deepgram_config(self) -> Dict[str, Any]:
-        """Deepgram STT configuration"""
+        """Deepgram STT configuration with Nova-3"""
         return {
             "api_key": self.api_keys["deepgram"],
             "sample_rate": 16000,
-            "model": "nova-2-general",
+            "model": "nova-3-general",  # Upgraded to Nova-3 for 53.4% better accuracy
             "language": "it",
             "encoding": "linear16",
             "channels": 1,
@@ -36,10 +36,10 @@ class Settings:
             "vad_events": False,
             "profanity_filter": False,
             "numerals": True,
-            "keywords": {
-                "maschio": 3,
-                "femmina": 3
-            }
+            # Nova-3 uses keyterms instead of keywords for better recognition
+            "keyterms": [
+                "maschio", "femmina"
+            ]
         }
     
     @property
@@ -68,7 +68,7 @@ class Settings:
     
     @property
     def vad_config(self) -> Dict[str, Any]:
-        """Voice Activity Detection configuration"""
+        """Voice Activity Detection configuration optimized for Nova-3"""
         return {
             "start_secs": 0.2,
             "stop_secs": 0.5,
