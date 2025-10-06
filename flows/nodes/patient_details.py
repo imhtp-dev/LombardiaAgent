@@ -85,17 +85,17 @@ def create_collect_phone_node() -> NodeConfig:
         }],
         task_messages=[{
             "role": "system",
-            "content": "Can you tell me if the phone you're calling from matches your official number? If yes, just say 'yes'. If not, tell me your phone number digit by digit. Slowly!"
+            "content": "Can you tell me if the phone you're calling from matches your official number? If yes, just say 'yes'. If not, tell me your phone number digit by digit. Slowly! IMPORTANT: When the user says 'yes', 'si', or 'sì', call collect_phone with their exact confirmation word."
         }],
         functions=[
             FlowsFunctionSchema(
                 name="collect_phone",
                 handler=collect_phone_and_transition,
-                description="Collect the patient's phone number",
+                description="Collect the patient's phone number or their confirmation response to use the caller ID. ALWAYS pass the user's exact response in the phone parameter.",
                 properties={
                     "phone": {
                         "type": "string",
-                        "description": "Patient's phone number"
+                        "description": "The exact user response: either their phone number digits OR their confirmation word (yes/si/sì/correct) if they want to use caller ID"
                     }
                 },
                 required=["phone"]

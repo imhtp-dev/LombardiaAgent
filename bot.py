@@ -57,6 +57,7 @@ from pipeline.components import create_stt_service, create_tts_service, create_l
 
 # Import transcript manager for conversation recording and call data extraction
 from services.transcript_manager import transcript_manager
+from services.call_logger import call_logger
 
 load_dotenv(override=True)
 
@@ -324,13 +325,21 @@ async def websocket_endpoint(websocket: WebSocket):
             )
         )
 
+        # START PER-CALL LOGGING
+        log_file = call_logger.start_call_logging(session_id, caller_phone)
+        logger.info(f"📁 Call logging started: {log_file}")
+
         # CREATE FLOW MANAGER
         flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
 
         # Store caller phone number in flow manager state
         if caller_phone:
             flow_manager.state["caller_phone_from_talkdesk"] = caller_phone
-            logger.info(f"📞 Stored caller phone in flow state: {caller_phone}")
+            call_logger.log_phone_debug("PHONE_STORED_IN_FLOW_STATE", {
+                "caller_phone": caller_phone,
+                "session_id": session_id,
+                "flow_state_keys": list(flow_manager.state.keys())
+            })
 
             # Also store in Azure storage for persistence
             try:
@@ -441,6 +450,11 @@ async def websocket_endpoint(websocket: WebSocket):
         # Cleanup sessions (COPIED FROM APP.PY)
         if session_id in active_sessions:
             del active_sessions[session_id]
+
+        # STOP PER-CALL LOGGING
+        saved_log_file = call_logger.stop_call_logging()
+        if saved_log_file:
+            logger.info(f"📁 Call log saved: {saved_log_file}")
 
         logger.info(f"Healthcare Flow Session ended: {session_id}")
         logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

@@ -306,3 +306,37 @@ class CallDataStorage:
         except Exception as e:
             logger.error(f"❌ Failed to retrieve caller phone: {e}")
             return None
+
+    async def _upload_text_content(self, blob_path: str, text_content: str) -> bool:
+        """
+        Upload text content to Azure Blob Storage
+
+        Args:
+            blob_path: Full blob path (e.g., "call-logs/2025-10-06/log.txt")
+            text_content: Text content to upload
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            blob_client = self.blob_service.get_blob_client(
+                container=self.container_name,
+                blob=blob_path
+            )
+
+            # Upload text content with UTF-8 encoding
+            blob_client.upload_blob(
+                text_content.encode('utf-8'),
+                overwrite=True,
+                metadata={
+                    "content_type": "text/plain",
+                    "uploaded_at": datetime.now().isoformat(),
+                    "source": "call_logger"
+                }
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to upload text content to {blob_path}: {e}")
+            return False

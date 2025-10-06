@@ -7,6 +7,7 @@ from loguru import logger
 
 from pipecat_flows import FlowManager, NodeConfig, FlowArgs
 from services.fiscal_code_generator import fiscal_code_generator
+from services.call_logger import call_logger
 
 
 async def start_email_collection_with_stt_switch(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -66,15 +67,45 @@ async def collect_surname_and_transition(args: FlowArgs, flow_manager: FlowManag
 async def collect_phone_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
     """Collect patient phone and transition to phone confirmation"""
     phone = args.get("phone", "").strip().lower()
+    raw_phone = args.get("phone", "")  # Keep original for debugging
 
     # Check if user confirmed to use the calling number
     caller_phone_from_talkdesk = flow_manager.state.get("caller_phone_from_talkdesk", "")
+
+    # DEBUG: Log what we received
+    call_logger.log_phone_debug("PHONE_CONFIRMATION_ATTEMPT", {
+        "user_said": phone,
+        "raw_user_input": raw_phone,  # Add raw input for debugging
+        "caller_phone_from_talkdesk": caller_phone_from_talkdesk,
+        "flow_state_keys": list(flow_manager.state.keys()),
+        "all_flow_state": {k: str(v)[:100] for k, v in flow_manager.state.items()}  # Truncate long values
+    })
+
+    # CRITICAL DEBUG: If phone is empty, log this as a major issue
+    if not phone.strip():
+        call_logger.log_error(Exception("LLM called collect_phone with EMPTY phone parameter!"), {
+            "raw_args": str(args),
+            "expected": "User response should be passed in phone parameter",
+            "debug_tip": "Check LLM function calling behavior"
+        })
 
     # If user says "yes" and we have caller phone from Talkdesk, use it
     if phone in ["yes", "si", "sì", "correct", "okay", "ok", "va bene"] and caller_phone_from_talkdesk:
         phone_clean = ''.join(filter(str.isdigit, caller_phone_from_talkdesk))
         logger.info(f"📞 Using caller's phone number from Talkdesk: {phone_clean}")
     else:
+        # DEBUG: Why didn't we use the Talkdesk phone?
+        if phone in ["yes", "si", "sì", "correct", "okay", "ok", "va bene"]:
+            call_logger.log_error(Exception("User confirmed but NO caller_phone_from_talkdesk found!"), {
+                "user_input": phone,
+                "expected_phone": "caller_phone_from_talkdesk should exist",
+                "flow_state": {k: str(v)[:50] for k, v in flow_manager.state.items()}
+            })
+        else:
+            call_logger.log_phone_debug("USER_DID_NOT_CONFIRM", {
+                "user_input": phone,
+                "reason": "User provided different phone number"
+            })
         # User provided a different phone number
         if not phone or len(phone) < 8:
             return {"success": False, "message": "Please provide a valid phone number"}, None
