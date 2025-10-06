@@ -26,6 +26,7 @@ env/
 # Logs and temporary files
 *.log
 logs/
+call_logs/
 recordings/
 data/
 temp/
