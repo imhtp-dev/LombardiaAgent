@@ -57,7 +57,6 @@ from pipeline.components import create_stt_service, create_tts_service, create_l
 
 # Import transcript manager for conversation recording and call data extraction
 from services.transcript_manager import transcript_manager
-from services.call_logger import call_logger
 
 load_dotenv(override=True)
 
@@ -205,7 +204,8 @@ async def websocket_endpoint(websocket: WebSocket):
     # Extract parameters from query string
     query_params = dict(websocket.query_params)
     business_status = query_params.get("business_status", "open")
-    session_id = query_params.get("session_id", f"session-{len(active_sessions)}")
+    import uuid
+    session_id = query_params.get("session_id", f"session-{uuid.uuid4().hex[:8]}")
     start_node = query_params.get("start_node", "greeting")
     caller_phone = query_params.get("caller_phone", "")
 
@@ -325,8 +325,10 @@ async def websocket_endpoint(websocket: WebSocket):
             )
         )
 
-        # START PER-CALL LOGGING
-        log_file = call_logger.start_call_logging(session_id, caller_phone)
+        # START PER-CALL LOGGING (create individual logger instance)
+        from services.call_logger import CallLogger
+        session_call_logger = CallLogger(session_id)
+        log_file = session_call_logger.start_call_logging(session_id, caller_phone)
         logger.info(f"📁 Call logging started: {log_file}")
 
         # CREATE FLOW MANAGER
@@ -335,7 +337,7 @@ async def websocket_endpoint(websocket: WebSocket):
         # Store caller phone number in flow manager state
         if caller_phone:
             flow_manager.state["caller_phone_from_talkdesk"] = caller_phone
-            call_logger.log_phone_debug("PHONE_STORED_IN_FLOW_STATE", {
+            session_call_logger.log_phone_debug("PHONE_STORED_IN_FLOW_STATE", {
                 "caller_phone": caller_phone,
                 "session_id": session_id,
                 "flow_state_keys": list(flow_manager.state.keys())
@@ -363,6 +365,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "websocket": ws,
                 "business_status": business_status,
                 "connected_at": asyncio.get_event_loop().time(),
+                "call_logger": session_call_logger,  # Store per-session logger
                 "services": {
                     "stt": "deepgram",
                     "llm": "openai-gpt4-flows",
@@ -451,10 +454,22 @@ async def websocket_endpoint(websocket: WebSocket):
         if session_id in active_sessions:
             del active_sessions[session_id]
 
-        # STOP PER-CALL LOGGING
-        saved_log_file = call_logger.stop_call_logging()
-        if saved_log_file:
-            logger.info(f"📁 Call log saved: {saved_log_file}")
+        # STOP PER-CALL LOGGING (use session-specific logger)
+        try:
+            saved_log_file = session_call_logger.stop_call_logging()
+            if saved_log_file:
+                logger.info(f"📁 Call log saved: {saved_log_file}")
+        except NameError:
+            # Fallback: try to get logger from active_sessions
+            try:
+                if session_id in active_sessions and "call_logger" in active_sessions[session_id]:
+                    saved_log_file = active_sessions[session_id]["call_logger"].stop_call_logging()
+                    if saved_log_file:
+                        logger.info(f"📁 Call log saved: {saved_log_file}")
+            except Exception as fallback_error:
+                logger.error(f"❌ Error in fallback call logging cleanup: {fallback_error}")
+        except Exception as e:
+            logger.error(f"❌ Error stopping call logging: {e}")
 
         logger.info(f"Healthcare Flow Session ended: {session_id}")
         logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

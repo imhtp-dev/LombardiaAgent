@@ -4,6 +4,7 @@ Booking and slot management flow handlers
 
 import re
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Tuple, List
 from loguru import logger
 
@@ -209,13 +210,16 @@ async def collect_datetime_and_transition(args: FlowArgs, flow_manager: FlowMana
         # Store date
         flow_manager.state["preferred_date"] = preferred_date
         
-        # Handle time preferences
+        # Handle time preferences - use database time format directly (no timezone conversion)
+
         if time_preference == "morning" or "morning" in preferred_time.lower():
+            # 08:00-12:00 time range (database format)
             flow_manager.state["start_time"] = f"{preferred_date} 08:00:00+00"
             flow_manager.state["end_time"] = f"{preferred_date} 12:00:00+00"
             flow_manager.state["time_preference"] = "morning (08:00-12:00)"
             logger.info(f"📅 Date/Time collected: {preferred_date} - Morning (08:00-12:00)")
         elif time_preference == "afternoon" or "afternoon" in preferred_time.lower():
+            # 12:00-19:00 time range (database format)
             flow_manager.state["start_time"] = f"{preferred_date} 12:00:00+00"
             flow_manager.state["end_time"] = f"{preferred_date} 19:00:00+00"
             flow_manager.state["time_preference"] = "afternoon (12:00-19:00)"
@@ -228,20 +232,18 @@ async def collect_datetime_and_transition(args: FlowArgs, flow_manager: FlowMana
             else:
                 hour = int(time_str)
                 minute = 0
-            
+
             # Handle PM times if needed
             if "pm" in preferred_time.lower() and hour != 12:
                 hour += 12
             elif "am" in preferred_time.lower() and hour == 12:
                 hour = 0
-            
-            # Set exact time with 2-hour window
-            start_datetime = f"{preferred_date} {hour:02d}:{minute:02d}:00+00"
-            end_obj = datetime.strptime(f"{preferred_date} {hour:02d}:{minute:02d}", "%Y-%m-%d %H:%M") + timedelta(hours=2)
-            end_datetime = end_obj.strftime("%Y-%m-%d %H:%M:00+00")
-            
-            flow_manager.state["start_time"] = start_datetime
-            flow_manager.state["end_time"] = end_datetime
+
+            # Use database time format directly (no timezone conversion)
+            end_hour = (hour + 2) % 24  # Add 2 hours for slot window
+
+            flow_manager.state["start_time"] = f"{preferred_date} {hour:02d}:{minute:02d}:00+00"
+            flow_manager.state["end_time"] = f"{preferred_date} {end_hour:02d}:{minute:02d}:00+00"
             flow_manager.state["preferred_time"] = f"{hour:02d}:{minute:02d}"
             flow_manager.state["time_preference"] = f"specific time ({hour:02d}:{minute:02d})"
             logger.info(f"📅 Date/Time collected: {preferred_date} at {hour:02d}:{minute:02d}")
@@ -398,35 +400,206 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
 async def select_slot_and_book(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
     """Handle slot selection and proceed to booking creation"""
     providing_entity_availability_uuid = args.get("providing_entity_availability_uuid", "").strip()
-    
+    selected_time = args.get("selected_time", "").strip()
+    selected_date = args.get("selected_date", "").strip()
+
+    # COMPREHENSIVE DEBUG LOGGING FOR SLOT SELECTION
+    logger.info("🔍 DEBUG: === SLOT SELECTION STARTED ===")
+    logger.info(f"🔍 DEBUG: Args received: {args}")
+    logger.info(f"🔍 DEBUG: providing_entity_availability_uuid = '{providing_entity_availability_uuid}'")
+    logger.info(f"🔍 DEBUG: selected_time = '{selected_time}'")
+    logger.info(f"🔍 DEBUG: selected_date = '{selected_date}'")
+
     if not providing_entity_availability_uuid:
+        logger.error("❌ DEBUG: No providing_entity_availability_uuid provided!")
         return {"success": False, "message": "Please select a time slot"}, None
-    
-    # Find selected slot from available slots
+
+    # Find selected slot from available slots using both UUID and time for precise matching
     available_slots = flow_manager.state.get("available_slots", [])
     selected_slot = None
-    
+
+    logger.info(f"🔍 DEBUG: available_slots count = {len(available_slots) if available_slots else 0}")
+    logger.info(f"🔍 DEBUG: available_slots = {available_slots}")
+
+    logger.info(f"🔍 Searching for slot: UUID={providing_entity_availability_uuid}, Time={selected_time}, Date={selected_date}")
+
     for slot in available_slots:
         if slot.get("providing_entity_availability_uuid") == providing_entity_availability_uuid:
-            selected_slot = slot
-            break
-    
+            # If we have time info, use it for precise matching
+            if selected_time:
+                # IMPORTANT: Convert UTC database times to Italian local time for comparison
+                # because user selected Italian time but database has UTC times
+                from services.timezone_utils import utc_to_italian_display
+
+                italian_start = utc_to_italian_display(slot.get("start_time", ""))
+                italian_end = utc_to_italian_display(slot.get("end_time", ""))
+
+                try:
+                    if not italian_start or not italian_end:
+                        # Fallback to original method if conversion fails
+                        logger.warning(f"⚠️ Timezone conversion failed for slot comparison, using UTC times")
+                        start_time_str = slot.get("start_time", "").replace("T", " ").replace("+00:00", "")
+                        end_time_str = slot.get("end_time", "").replace("T", " ").replace("+00:00", "")
+                        start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+                        end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+                    else:
+                        # Use converted Italian times for comparison
+                        start_dt = datetime.strptime(italian_start, "%Y-%m-%d %H:%M:%S")
+                        end_dt = datetime.strptime(italian_end, "%Y-%m-%d %H:%M:%S")
+
+                    # Format slot time to match selected_time format (H:MM - H:MM)
+                    slot_time_full = f"{start_dt.strftime('%-H:%M')} - {end_dt.strftime('%-H:%M')}"
+                    slot_time_start = start_dt.strftime('%-H:%M')
+
+                    logger.info(f"🕐 Comparing times: slot='{slot_time_full}' (Italian) vs selected='{selected_time}' (Italian)")
+
+                    # Match either full format "12:00 - 12:15" or start time only "12:00"
+                    if slot_time_full == selected_time or slot_time_start == selected_time:
+                        selected_slot = slot
+                        logger.info(f"✅ Found exact time match: {slot_time_full}")
+                        break
+                except Exception as e:
+                    logger.warning(f"⚠️ Time parsing error for slot: {e}")
+                    # Continue to check other slots
+                    continue
+            else:
+                # Fallback to first match by UUID (old behavior)
+                selected_slot = slot
+                logger.warning(f"⚠️ Using UUID-only matching (no time provided)")
+                break
+
     if not selected_slot:
-        return {"success": False, "message": "Selected slot not found"}, None
-    
+        logger.error(f"❌ DEBUG: Slot not found: UUID={providing_entity_availability_uuid}, Time={selected_time}")
+
+        # Debug: Log all available UUIDs for comparison
+        logger.error("❌ DEBUG: Available slot UUIDs:")
+        for i, slot in enumerate(available_slots):
+            uuid = slot.get("providing_entity_availability_uuid", "MISSING_UUID")
+            logger.error(f"   [{i}] UUID: {uuid}")
+
+        # Provide more helpful error message with available times (in Italian local time)
+        if available_slots:
+            available_times = []
+            from services.timezone_utils import utc_to_italian_display
+
+            for slot in available_slots[:5]:  # Show first 5 available times
+                try:
+                    # Convert UTC to Italian time for user display
+                    italian_start = utc_to_italian_display(slot.get("start_time", ""))
+                    if italian_start:
+                        start_dt = datetime.strptime(italian_start, "%Y-%m-%d %H:%M:%S")
+                        available_times.append(start_dt.strftime('%-H:%M'))
+                    else:
+                        # Fallback to UTC if conversion fails
+                        start_time_str = slot.get("start_time", "").replace("T", " ").replace("+00:00", "")
+                        start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+                        available_times.append(start_dt.strftime('%-H:%M'))
+                except:
+                    continue
+
+            if available_times:
+                times_text = ", ".join(available_times)
+                error_message = f"Sorry, that time is not available. Available times include: {times_text}. Please choose one of these times."
+            else:
+                error_message = "Sorry, that time slot is not available. Please choose from the available times shown above."
+        else:
+            error_message = "No available slots found. Please try a different date."
+
+        return {"success": False, "message": error_message}, None
+
     # Store selected slot
+    logger.info(f"🔍 DEBUG: STORING selected_slot in state: {selected_slot}")
     flow_manager.state["selected_slot"] = selected_slot
-    
+    logger.info(f"🔍 DEBUG: State after storing selected_slot: selected_slot key exists = {'selected_slot' in flow_manager.state}")
+
     # Extract pricing based on Cerba membership
     is_cerba_member = flow_manager.state.get("is_cerba_member", False)
     health_services = selected_slot.get("health_services", [])
-    
+
+    logger.info(f"🔍 DEBUG: is_cerba_member = {is_cerba_member}")
+    logger.info(f"🔍 DEBUG: health_services = {health_services}")
+
     if health_services:
         service = health_services[0]
         price = service.get("cerba_card_price") if is_cerba_member else service.get("price")
         flow_manager.state["slot_price"] = price
-    
+        logger.info(f"🔍 DEBUG: Stored slot_price = {price}")
+
     logger.info(f"🎯 Slot selected: {selected_slot['start_time']} to {selected_slot['end_time']}")
+    logger.info(f"🔍 DEBUG: === SLOT SELECTION COMPLETED SUCCESSFULLY ===")
+
+    # CRITICAL: NOW CALL CREATE_SLOT API TO RESERVE THE SLOT
+    logger.info("🔧 DEBUG: === STARTING SLOT RESERVATION ===")
+
+    # IMPORTANT: The selected_slot contains the ORIGINAL UTC times from the database
+    # We should use these UTC times directly for the create_slot API call
+    # NO CONVERSION NEEDED - the database times are already in UTC!
+
+    # Extract original UTC times from selected slot (these are the correct times for the API)
+    original_start_time = selected_slot['start_time'].replace("T", " ").replace("+00:00", "")
+    original_end_time = selected_slot['end_time'].replace("T", " ").replace("+00:00", "")
+
+    logger.info(f"🔧 DEBUG: Using original UTC times from database:")
+    logger.info(f"   - original_start_time (UTC): {original_start_time}")
+    logger.info(f"   - original_end_time (UTC): {original_end_time}")
+
+    providing_entity_availability_uuid = selected_slot['providing_entity_availability_uuid']
+
+    logger.info(f"🔧 DEBUG: Calling create_slot API:")
+    logger.info(f"   - start_time: {original_start_time}")
+    logger.info(f"   - end_time: {original_end_time}")
+    logger.info(f"   - providing_entity_availability_uuid: {providing_entity_availability_uuid}")
+
+    # Call create_slot to reserve the slot
+    from services.slotAgenda import create_slot
+    try:
+        status_code, slot_uuid, created_at = create_slot(original_start_time, original_end_time, providing_entity_availability_uuid)
+
+        logger.info(f"🔧 DEBUG: create_slot API response:")
+        logger.info(f"   - status_code: {status_code}")
+        logger.info(f"   - slot_uuid: {slot_uuid}")
+        logger.info(f"   - created_at: {created_at}")
+
+        if status_code not in [200, 201]:
+            logger.error(f"❌ Slot reservation failed with status {status_code}")
+            # Slot no longer available - show error with slot refresh option
+            from flows.nodes.booking import create_slot_refresh_node
+            selected_services = flow_manager.state.get("selected_services", [])
+            service_name = selected_services[0].name if selected_services else "Unknown Service"
+            return {
+                "success": False,
+                "message": "The selected time slot is no longer available"
+            }, create_slot_refresh_node(service_name)
+
+        # Success! Store the reserved slot UUID
+        logger.info(f"✅ Slot reserved successfully! Slot UUID: {slot_uuid}")
+
+        # Create booked_slots with the reserved slot UUID
+        selected_services = flow_manager.state.get("selected_services", [])
+        if "booked_slots" not in flow_manager.state:
+            flow_manager.state["booked_slots"] = []
+
+        flow_manager.state["booked_slots"].append({
+            "slot_uuid": slot_uuid,  # THIS IS THE CRITICAL UUID FOR FINAL BOOKING
+            "service_name": selected_services[0].name if selected_services else "Unknown",
+            "start_time": selected_slot['start_time'],
+            "end_time": selected_slot['end_time'],
+            "price": flow_manager.state.get("slot_price", 0),
+            "health_services": selected_slot.get("health_services", []),
+            "providing_entity_availability_uuid": providing_entity_availability_uuid  # Keep for reference
+        })
+
+        logger.info(f"🔧 Created booked_slots with reserved slot UUID: {flow_manager.state['booked_slots']}")
+
+    except Exception as e:
+        logger.error(f"❌ Exception during slot reservation: {e}")
+        from flows.nodes.booking import create_slot_refresh_node
+        selected_services = flow_manager.state.get("selected_services", [])
+        service_name = selected_services[0].name if selected_services else "Unknown Service"
+        return {
+            "success": False,
+            "message": "Failed to reserve the selected time slot"
+        }, create_slot_refresh_node(service_name)
 
     # Get required data for booking summary
     selected_services = flow_manager.state.get("selected_services", [])
@@ -443,17 +616,24 @@ async def select_slot_and_book(args: FlowArgs, flow_manager: FlowManager) -> Tup
         price = service_data.get("cerba_card_price") if is_cerba_member else service_data.get("price", 0)
         total_cost += price
 
-    # Store booked slots info for final booking
-    flow_manager.state["booked_slots"] = [{
-        "slot_uuid": providing_entity_availability_uuid,
-        "start_time": selected_slot["start_time"],
-        "end_time": selected_slot["end_time"],
-        "price": total_cost,
-        "service_name": selected_services[0].name if selected_services else "Unknown Service"
-    }]
+    # Store slot price for later use
+    individual_slot_price = 0
+    if health_services:
+        service_data = health_services[0]
+        individual_slot_price = service_data.get("cerba_card_price") if is_cerba_member else service_data.get("price", 0)
+
+    flow_manager.state["slot_price"] = individual_slot_price
 
     # Go to booking summary confirmation
     from flows.nodes.booking import create_booking_summary_confirmation_node
+
+    # Debug logging to track booking summary data
+    logger.info(f"🎯 Creating booking summary:")
+    logger.info(f"   Selected slot time: {selected_slot['start_time']} to {selected_slot['end_time']}")
+    logger.info(f"   Individual price: {individual_slot_price} euro")
+    logger.info(f"   Total cost: {total_cost} euro")
+    logger.info(f"   Center: {selected_center.name}")
+
     return {
         "success": True,
         "slot_time": f"{selected_slot['start_time']} to {selected_slot['end_time']}",

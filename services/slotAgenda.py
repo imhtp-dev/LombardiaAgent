@@ -52,20 +52,45 @@ def list_slot(health_center_uuid, date_search, uuid_exam, gender='m', date_of_bi
         'availabilities_limit': 3                   
     }
 
+    print(f'🔍 SLOT FETCH DEBUG: Making API request to: {api_url}')
+    print(f'🔍 SLOT FETCH DEBUG: Request params: {request_data}')
+
     response = requests.get(api_url, headers=headers, params=request_data)
+
+    print(f'🔍 SLOT FETCH DEBUG: Response status: {response.status_code}')
+
     if response.status_code == 200:
         slots = response.json()
-        print(f'Slots: {slots}')
+        print(f'🔍 SLOT FETCH DEBUG: ===== FULL API RESPONSE =====')
+        print(f'🔍 SLOT FETCH DEBUG: Raw response: {slots}')
+        print(f'🔍 SLOT FETCH DEBUG: Response type: {type(slots)}')
+
+        if isinstance(slots, list):
+            print(f'🔍 SLOT FETCH DEBUG: Number of slots returned: {len(slots)}')
+            for i, slot in enumerate(slots):
+                print(f'🔍 SLOT FETCH DEBUG: --- SLOT {i+1} ---')
+                print(f'🔍 SLOT FETCH DEBUG: Full slot data: {slot}')
+                print(f'🔍 SLOT FETCH DEBUG: start_time: {slot.get("start_time", "MISSING")}')
+                print(f'🔍 SLOT FETCH DEBUG: end_time: {slot.get("end_time", "MISSING")}')
+                print(f'🔍 SLOT FETCH DEBUG: providing_entity_availability_uuid: {slot.get("providing_entity_availability_uuid", "MISSING")}')
+                print(f'🔍 SLOT FETCH DEBUG: health_services: {slot.get("health_services", "MISSING")}')
+                if i >= 2:  # Limit to first 3 slots to avoid log spam
+                    print(f'🔍 SLOT FETCH DEBUG: ... ({len(slots) - i - 1} more slots not shown)')
+                    break
+        else:
+            print(f'🔍 SLOT FETCH DEBUG: Response is not a list: {slots}')
+
+        print(f'🔍 SLOT FETCH DEBUG: ===== END RESPONSE =====')
         return slots  # Return the slots data
     else:
-        print(f'Error during request: {response.status_code} - {response.text}')
+        print(f'🔍 SLOT FETCH DEBUG: ❌ API Error: {response.status_code} - {response.text}')
         return []  # Return empty list on error
 
 
 def create_slot(start_slot,end_slot,pea):
-    rome_tz = ZoneInfo('Europe/Rome')
-    start_slot= datetime.strptime(start_slot, '%Y-%m-%d %H:%M:%S').replace(tzinfo=rome_tz).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    end_slot= datetime.strptime(end_slot, '%Y-%m-%d %H:%M:%S').replace(tzinfo=rome_tz).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    # Use slot times as-is (no timezone conversion needed)
+    # Input format: 2025-10-27 11:25:00
+    # API expects: 2025-10-27 11:25:00 (same format)
     ambiente="prod"
 
     token = get_token()
@@ -107,5 +132,7 @@ def delete_slot(slot_uuid):
     upd_at=""
     return response
 
-#print(list_slot("c48ff93f-1c88-4621-9cd5-31ad87e83e48","2025-09-19","9a93d65f-396a-45e4-9284-94481bdd2b51"))
-print(create_slot('2025-09-19 09:45:00','2025-09-19 09:50:00',"81bc7563-ac82-4f90-8bda-e2143c9d15c4"))
+
+#print(list_slot("c48ff93f-1c88-4621-9cd5-31ad87e83e48","2025-10-24","9a93d65f-396a-45e4-9284-94481bdd2b51"))
+#print(create_slot('2025-10-08 15:15:00','2025-10-08 15:25:00',"d1bbc9cd-e7e8-4e1e-8075-b637824504a6"))
+#print(create_slot('2025-10-27 11:25:00','2025-10-27 11:30:00',"d1bbc9cd-e7e8-4e1e-8075-b637824504a6"))

@@ -4,6 +4,7 @@ Booking and appointment management nodes
 
 import json
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List
 from pipecat_flows import NodeConfig, FlowsFunctionSchema
 
@@ -166,7 +167,7 @@ Which health center would you prefer for your appointment? Just tell me the name
         name="final_center_selection",
         role_messages=[{
             "role": "system",
-            "content": f"""We are currently in 2025. You are helping a patient choose between {len(top_centers)} health centers that can provide their services: {service_names}.
+            "content": f"""You are helping a patient choose between {len(top_centers)} health centers that can provide their services: {service_names}.
 
 IMPORTANT: You must clearly present the health centers and ask the patient to choose one. Never say generic phrases like "complete the booking" - instead, present the specific centers and ask them to choose.
 
@@ -175,7 +176,9 @@ When the patient selects a center, call the select_center function with the corr
 Available centers:
 {chr(10).join([f"- {center.name} (UUID: {center.uuid})" for center in top_centers])}
 
-Always speak naturally like a human and say 'euros' instead of the € symbol. {settings.language_config}"""
+CRITICAL: When speaking to users, only mention the full centers name (e.g., "Milano Via Emilio de Marchi 4 - Biochimico, Cologno Monzese Viale Liguria 37 - Curie, ozzano Viale Toscana 35/37 - Delta Medica"). NEVER read full addresses or detailed information aloud.
+
+Always speak naturally like a human. {settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",
@@ -364,19 +367,38 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
     # Parse and group slots by date
     slots_by_date = {}
     parsed_slots = []
-    
+
+    # Debug: Log the first few raw slots to understand what we're working with
+    if slots:
+        from loguru import logger
+        logger.debug(f"🔧 Processing {len(slots)} raw slots for {service.name}")
+        for i, slot in enumerate(slots[:3]):
+            start_time = slot.get('start_time', 'N/A')
+            logger.debug(f"   Slot {i+1}: {start_time} -> UUID: {slot.get('providing_entity_availability_uuid', 'N/A')}")
+
     for slot in slots:
-        # Parse slot data
-        start_time_str = slot["start_time"].replace("T", " ").replace("+00:00", "")
-        end_time_str = slot["end_time"].replace("T", " ").replace("+00:00", "")
-        
-        start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
-        end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
-        
+        # Convert UTC slot times to Italian local time for user display
+        from services.timezone_utils import utc_to_italian_display, format_time_for_display
+
+        italian_start = utc_to_italian_display(slot["start_time"])
+        italian_end = utc_to_italian_display(slot["end_time"])
+
+        # Fallback to original if conversion fails
+        if not italian_start or not italian_end:
+            logger.warning(f"⚠️ Timezone conversion failed, using original times")
+            start_time_str = slot["start_time"].replace("T", " ").replace("+00:00", "")
+            end_time_str = slot["end_time"].replace("T", " ").replace("+00:00", "")
+            start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+            end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+        else:
+            # Use converted Italian times
+            start_dt = datetime.strptime(italian_start, "%Y-%m-%d %H:%M:%S")
+            end_dt = datetime.strptime(italian_end, "%Y-%m-%d %H:%M:%S")
+
         date_key = start_dt.strftime("%Y-%m-%d")
         formatted_date = start_dt.strftime("%d %B")
-        
-        # Format times in 24-hour format without leading zeros
+
+        # Format times in 24-hour format without leading zeros (Italian local time)
         start_time_24h = start_dt.strftime("%-H:%M")
         end_time_24h = end_dt.strftime("%-H:%M")
         
@@ -476,10 +498,18 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
 
 You have {len(slots)} available slots. When presenting slots:
 - ALWAYS use 24-hour time format (e.g., 13:40, 15:30) - NEVER convert to 12-hour format
+- CRITICAL: ONLY present times that actually exist in the available slots - DO NOT mention any times that aren't available
+- IMPORTANT: When speaking times aloud, always say them in words never digits:
+  * Italian: "nove e zero" for 9:00, "nove e quindici" for 9:15, "tredici e quaranta" for 13:40, "dodici e quarantacinque" for 12:45
+  * English: "nine o'clock" for 9:00, "nine fifteen" for 9:15, "thirteen forty" for 13:40, "twelve forty-five" for 12:45
+
+- IMPORTANT: When calling function, always use digits never use words:
+  * Italian:  9:00 for "nove e zero" , 9:15 for "nove e quindici" , 13:40 for "tredici e quaranta" , 12:45 for "dodici e quarantacinque" 
+  * English:  9:00 for "nine o'clock" , 9:15 for "nine fifteen" ,  13:40" for thirteen forty" , 12:45 for "twelve forty-five" 
+
 - Never mention prices, UUIDs, or technical details
 - Be conversational and human
-- Speak naturally, as if suggesting a specific time: "Should I book you at 13:40?"
-- Always say "euros" in words, not the € symbol
+- IMPORTANT: Before suggesting any time, verify it exists in the available slots list
 
 Available slot data: {slot_context} {settings.language_config}"""
         }],
@@ -577,7 +607,7 @@ def create_no_slots_node(date: str, time_preference: str = "any time") -> NodeCo
         name="no_slots_available",
         role_messages=[{
             "role": "system",
-            "content": f"We are in 2025. When there are no available slots, be helpful and suggest alternatives in a human way. Offer to search for different dates or times. Never mention technical details or UUIDs. Always say 'euros' instead of the € symbol. {settings.language_config}"
+            "content": f"We are in 2025. When there are no available slots, be helpful and suggest alternatives in a human way. Offer to search for different dates or times. Never mention technical details or UUIDs. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -608,22 +638,66 @@ def create_no_slots_node(date: str, time_preference: str = "any time") -> NodeCo
     )
 
 
+def _extract_clean_center_name(center_name: str) -> str:
+    """Extract clean center name from full name that contains address info"""
+    # Center names come in format: "City Address - Brand Name"
+    # Example: "Rozzano Viale Toscana 35/37 - Delta Medica"
+    # We want to extract just: "Delta Medica" or "City - Brand Name"
+
+    if " - " in center_name:
+        # Split by " - " and take the brand name part
+        parts = center_name.split(" - ")
+        if len(parts) >= 2:
+            # Return the last part (brand name)
+            return parts[-1].strip()
+
+    # Fallback: return the original name
+    return center_name
+
+
 def create_booking_summary_confirmation_node(selected_services: List[HealthService], selected_slots: List[Dict], selected_center: HealthCenter, total_cost: float, is_cerba_member: bool = False) -> NodeConfig:
     """Create booking summary confirmation node with all details before personal info collection"""
+
+    # Extract clean center name
+    clean_center_name = _extract_clean_center_name(selected_center.name)
 
     # Format service details
     services_text = []
     for i, service in enumerate(selected_services):
         if i < len(selected_slots):
             slot = selected_slots[i]
-            # Parse slot time
-            start_time_str = slot["start_time"].replace("T", " ").replace("+00:00", "")
-            start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+            # Convert UTC slot times to Italian local time for user display
+            from services.timezone_utils import utc_to_italian_display
+
+            italian_start = utc_to_italian_display(slot["start_time"])
+            italian_end = utc_to_italian_display(slot["end_time"])
+
+            # Fallback to original if conversion fails
+            if not italian_start or not italian_end:
+                logger.warning(f"⚠️ Timezone conversion failed for booking summary, using original times")
+                start_time_str = slot["start_time"].replace("T", " ").replace("+00:00", "")
+                end_time_str = slot["end_time"].replace("T", " ").replace("+00:00", "")
+                start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+                end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+            else:
+                # Use converted Italian times
+                start_dt = datetime.strptime(italian_start, "%Y-%m-%d %H:%M:%S")
+                end_dt = datetime.strptime(italian_end, "%Y-%m-%d %H:%M:%S")
+
             formatted_date = start_dt.strftime("%d %B %Y")
             formatted_time = start_dt.strftime("%-H:%M")
 
+            # Get the actual service price from the slot's health_services data
             service_cost = slot.get('price', 0)
-            services_text.append(f"• {service.name} on {formatted_date} at {formatted_time} - {int(service_cost)} euros")
+            if service_cost == 0 and 'health_services' in slot and len(slot['health_services']) > 0:
+                # Try to get price from health_services within the slot
+                health_service = slot['health_services'][0]
+                if is_cerba_member:
+                    service_cost = health_service.get('cerba_card_price', health_service.get('price', 0))
+                else:
+                    service_cost = health_service.get('price', 0)
+
+            services_text.append(f"• {service.name} il {formatted_date} alle {formatted_time} - {int(service_cost)} euro")
 
     services_summary = "\n".join(services_text)
 
@@ -636,10 +710,10 @@ def create_booking_summary_confirmation_node(selected_services: List[HealthServi
 {services_summary}
 
 **Health Center:**
-{selected_center.name}
-{selected_center.address}, {selected_center.city}
+{clean_center_name}
+{selected_center.address}
 
-**Total Cost:** {int(total_cost)} euros{membership_text}
+**Total Cost:** {int(total_cost)} euro{membership_text}
 
 Would you like to proceed with this booking? If yes, I'll just need to collect some personal information to complete your appointment. If the cost is too high or you'd like to change anything, just let me know."""
 
@@ -647,7 +721,7 @@ Would you like to proceed with this booking? If yes, I'll just need to collect s
         name="booking_summary_confirmation",
         role_messages=[{
             "role": "system",
-            "content": f"Booking hasn't been done yet. This is only the summary of booking after that we will collect personal details and then confirm the booking. Present a clear summary of the booking including services, location, time, and total cost. Ask for confirmation before proceeding to personal information collection. If the patient wants to cancel or change something, be helpful and offer alternatives. {settings.language_config}"
+            "content": f"CRITICAL: You must present EXACTLY the booking summary provided below. DO NOT change, modify, or hallucinate any times, dates, services, or prices. Use ONLY the exact information from the summary content. DO NOT mention any times other than what is explicitly written in the summary. This is just a summary - the actual booking will be created after collecting personal details. Ask for confirmation before proceeding to personal information collection. If the patient wants to cancel or change something, be helpful and offer alternatives. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",

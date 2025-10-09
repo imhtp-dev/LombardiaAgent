@@ -15,9 +15,10 @@ import threading
 class CallLogger:
     """Manages per-call log files for debugging"""
 
-    def __init__(self):
+    def __init__(self, session_id: str = None):
         self.call_logs_dir = Path("call_logs")
         self.call_logs_dir.mkdir(exist_ok=True)
+        self.session_id = session_id  # Unique per instance
         self.current_session_id: Optional[str] = None
         self.current_log_file: Optional[str] = None
         self.handler_id: Optional[int] = None

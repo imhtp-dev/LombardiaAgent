@@ -200,11 +200,11 @@ def create_confirm_phone_node(phone: str) -> NodeConfig:
         name="confirm_phone",
         role_messages=[{
             "role": "system",
-            "content": f"Ask the user to confirm their phone number and WAIT for their response. Only call the confirm_phone function AFTER the user has spoken and given their response. If they say yes/correct/confirm, use action='confirm'. If they want to change it, use action='change'. Do NOT call any function until the user has responded. {settings.language_config}"
+            "content": f"Always write 'più' for '+' before phone number. Ask the user to confirm their phone number and WAIT for their response. Only call the confirm_phone function AFTER the user has spoken and given their response. If they say yes/correct/confirm, use action='confirm'. If they want to change it, use action='change'. Do NOT call any function until the user has responded. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": f"I have your phone number as: {phone}. Is this correct? Say \"yes\" if it's correct, or \"change\" if you want to provide a different number."
+            "content": f"I have your phone number as: più{' '.join(phone)}. Is this correct? Say \"yes\" if it's correct, or \"change\" if you want to provide a different number."
         }],
         functions=[
             FlowsFunctionSchema(
@@ -231,7 +231,7 @@ def create_confirm_email_node(email: str) -> NodeConfig:
         name="confirm_email",
         role_messages=[{
             "role": "system",
-            "content": f"Ask the user to confirm their email address and WAIT for their response. Only call the confirm_email function AFTER the user has spoken and given their response. If they say yes/correct/confirm, use action='confirm'. If they want to change it, use action='change'. Do NOT call any function until the user has responded. {settings.language_config}"
+            "content": f"Write the letter '@' as 'chiocciola'. Ask the user to confirm their email address and WAIT for their response. Only call the confirm_email function AFTER the user has spoken and given their response. If they say yes/correct/confirm, use action='confirm'. If they want to change it, use action='change'. Do NOT call any function until the user has responded. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",

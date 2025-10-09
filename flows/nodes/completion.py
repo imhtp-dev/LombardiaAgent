@@ -3,6 +3,7 @@ Success, error, and completion handling nodes
 """
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import List, Dict
 from pipecat_flows import NodeConfig, FlowsFunctionSchema
 
@@ -45,19 +46,29 @@ def create_booking_success_multi_node(booked_slots: List[Dict], total_price: flo
     """Create booking success node with all booking details"""
     bookings_text = []
     for slot in booked_slots:
-        # Convert time format to human readable
-        start_time_str = slot['start_time'].replace("T", " ").replace("+00:00", "")
-        end_time_str = slot['end_time'].replace("T", " ").replace("+00:00", "")
-        
-        # Format datetime to human readable
-        start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
-        end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
-        
+        # Convert UTC times to Italian local time for user display
+        from services.timezone_utils import utc_to_italian_display
+
+        italian_start = utc_to_italian_display(slot['start_time'])
+        italian_end = utc_to_italian_display(slot['end_time'])
+
+        # Fallback to original if conversion fails
+        if not italian_start or not italian_end:
+            logger.warning(f"⚠️ Timezone conversion failed for completion display, using original times")
+            start_time_str = slot['start_time'].replace("T", " ").replace("+00:00", "")
+            end_time_str = slot['end_time'].replace("T", " ").replace("+00:00", "")
+            start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+            end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+        else:
+            # Use converted Italian times
+            start_dt = datetime.strptime(italian_start, "%Y-%m-%d %H:%M:%S")
+            end_dt = datetime.strptime(italian_end, "%Y-%m-%d %H:%M:%S")
+
         formatted_date = start_dt.strftime("%d %B")
         start_time = start_dt.strftime("%-H:%M")
         end_time = end_dt.strftime("%-H:%M")
         
-        booking_text = f"You have booked {slot['service_name']} for {formatted_date} from {start_time} to {end_time} and this appointment costs {int(slot['price'])} euros"
+        booking_text = f"You have booked {slot['service_name']} for {formatted_date} from {start_time} to {end_time} and this appointment costs {int(slot['price'])} euro"
         bookings_text.append(booking_text)
     
     bookings_summary = "\n\n".join(bookings_text)
@@ -66,15 +77,15 @@ def create_booking_success_multi_node(booked_slots: List[Dict], total_price: flo
 
 {bookings_summary}
 
-The total cost of your appointments is {int(total_price)} euros.
+The total cost of your appointments is {int(total_price)} euro.
 
-Your bookings are confirmed and you will receive confirmation details shortly. You can say cancel booking to cancel, change time to reschedule, or start a new booking."""
+Your bookings are confirmed and you will receive confirmation details shortly."""
     
     return NodeConfig(
         name="booking_success_multi",
         role_messages=[{
             "role": "system",
-            "content": f"We are currently in 2025. Celebrate successful bookings in a warm and human way. Always say 'euros' instead of using the € symbol. Speak naturally like a friendly assistant. {settings.language_config}"
+            "content": f"Celebrate successful bookings in a warm and human way. Always say 'euro' instead of using the € symbol. Speak naturally like a friendly assistant. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",

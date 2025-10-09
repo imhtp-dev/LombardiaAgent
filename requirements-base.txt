@@ -2,7 +2,7 @@
 # These are cached in Docker layers and only rebuild when this file changes
 
 # Core Pipecat with all extras
-pipecat-ai[daily,openai,silero,deepgram,elevenlabs]
+pipecat-ai[daily,openai,silero,deepgram,elevenlabs,azure]
 pipecat-ai-flows>=0.0.20
 
 # PyTorch (large downloads)

@@ -233,13 +233,15 @@ async def confirm_email_and_transition(args: FlowArgs, flow_manager: FlowManager
 async def generate_fiscal_code_from_state(flow_manager: FlowManager) -> None:
     """Generate fiscal code from collected patient data in state"""
     try:
-        # Extract patient data from state
+        # Extract patient data from state - check both individual keys and patient_data dict
+        patient_data_dict = flow_manager.state.get("patient_data", {})
+
         patient_data = {
             'name': flow_manager.state.get("patient_name", ""),
             'surname': flow_manager.state.get("patient_surname", ""),
-            'birth_date': flow_manager.state.get("patient_dob", ""),
-            'gender': flow_manager.state.get("patient_gender", ""),
-            'birth_city': flow_manager.state.get("patient_birth_city", "")
+            'birth_date': flow_manager.state.get("patient_dob", patient_data_dict.get("date_of_birth", "")),
+            'gender': flow_manager.state.get("patient_gender", patient_data_dict.get("gender", "")),
+            'birth_city': flow_manager.state.get("patient_birth_city", patient_data_dict.get("birth_city", ""))
         }
 
         logger.info(f"🔧 Generating fiscal code from state data: {patient_data}")
@@ -291,14 +293,31 @@ async def collect_marketing_authorization_and_transition(args: FlowArgs, flow_ma
     """Collect marketing authorization and proceed directly to booking completion"""
     marketing_auth = args.get("marketing_authorization", False)
 
+    # COMPREHENSIVE DEBUG LOGGING FOR FINAL STEP
+    logger.info("🔍 DEBUG: === MARKETING AUTHORIZATION HANDLER ===")
+    logger.info(f"🔍 DEBUG: Args received: {args}")
+    logger.info(f"🔍 DEBUG: marketing_auth = {marketing_auth}")
+
     # Store marketing authorization in state
     flow_manager.state["marketing_authorization"] = marketing_auth
 
     logger.info(f"📢 Marketing authorization: {'Yes' if marketing_auth else 'No'}")
     logger.info("✅ All patient details collected, proceeding directly to final booking")
 
+    # Log current state before final booking
+    logger.info(f"🔍 DEBUG: State keys before final booking: {list(flow_manager.state.keys())}")
+    logger.info(f"🔍 DEBUG: selected_slot exists: {'selected_slot' in flow_manager.state}")
+    logger.info(f"🔍 DEBUG: booked_slots exists: {'booked_slots' in flow_manager.state}")
+
     # Skip bulk verification - proceed directly to booking creation
-    return await confirm_details_and_create_booking({"details_confirmed": True}, flow_manager)
+    logger.info("🔍 DEBUG: Calling confirm_details_and_create_booking...")
+    try:
+        result = await confirm_details_and_create_booking({"details_confirmed": True}, flow_manager)
+        logger.info(f"🔍 DEBUG: confirm_details_and_create_booking returned: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"❌ DEBUG: Exception in confirm_details_and_create_booking: {e}")
+        raise
 
 
 async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -316,21 +335,116 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
 
     logger.info("✅ Patient details confirmed, proceeding to final booking")
 
+    # COMPREHENSIVE DEBUG LOGGING - Track exactly what we have in state
+    logger.info("🔍 DEBUG: Starting booking data validation")
+    logger.info(f"🔍 DEBUG: Complete flow_manager.state keys: {list(flow_manager.state.keys())}")
+
     # Get all required data from state
     selected_services = flow_manager.state.get("selected_services", [])
     booked_slots = flow_manager.state.get("booked_slots", [])
+
+    logger.info(f"🔍 DEBUG: selected_services = {selected_services}")
+    logger.info(f"🔍 DEBUG: selected_services type = {type(selected_services)}")
+    logger.info(f"🔍 DEBUG: selected_services length = {len(selected_services) if selected_services else 'None'}")
+
+    logger.info(f"🔍 DEBUG: booked_slots = {booked_slots}")
+    logger.info(f"🔍 DEBUG: booked_slots type = {type(booked_slots)}")
+    logger.info(f"🔍 DEBUG: booked_slots length = {len(booked_slots) if booked_slots else 'None'}")
+
+    # Check if selected_slot exists
+    selected_slot_exists = "selected_slot" in flow_manager.state
+    selected_slot_value = flow_manager.state.get("selected_slot", "NOT_FOUND")
+    logger.info(f"🔍 DEBUG: selected_slot exists? {selected_slot_exists}")
+    logger.info(f"🔍 DEBUG: selected_slot value = {selected_slot_value}")
+
+    # If booked_slots is empty but we have selected_slot, this is a CRITICAL ERROR
+    # The slot should have been reserved via create_slot() API in select_slot_and_book()
+    if not booked_slots and "selected_slot" in flow_manager.state:
+        logger.error("❌ CRITICAL ERROR: booked_slots is empty but selected_slot exists!")
+        logger.error("❌ This means slot reservation (create_slot API) was skipped or failed!")
+        selected_slot = flow_manager.state["selected_slot"]
+        logger.error(f"❌ selected_slot data = {selected_slot}")
+
+        # This should NOT happen in the fixed flow, but provide fallback with clear error
+        logger.error("❌ FALLBACK: Cannot create valid booking without reserved slot UUID")
+        logger.error("❌ The providing_entity_availability_uuid cannot be used for final booking")
+
+        from flows.nodes.completion import create_error_node
+        return {
+            "success": False,
+            "message": "Slot reservation failed - cannot complete booking"
+        }, create_error_node("Slot reservation failed. The time slot was not properly reserved. Please start the booking process again.")
+    else:
+        if booked_slots:
+            logger.info(f"🔍 DEBUG: booked_slots already exists: {booked_slots}")
+        if not selected_slot_exists:
+            logger.error("❌ DEBUG: No selected_slot found in state - this is a problem!")
+
+    # Get patient data with extensive logging
     patient_name = flow_manager.state.get("patient_name", "")
     patient_surname = flow_manager.state.get("patient_surname", "")
     patient_phone = flow_manager.state.get("patient_phone", "")
     patient_email = flow_manager.state.get("patient_email", "")
     patient_fiscal_code = flow_manager.state.get("generated_fiscal_code", "")
-    patient_gender = flow_manager.state.get("patient_gender", "m")
-    patient_dob = flow_manager.state.get("patient_dob", "")
+
+    logger.info(f"🔍 DEBUG: patient_name = '{patient_name}'")
+    logger.info(f"🔍 DEBUG: patient_surname = '{patient_surname}'")
+    logger.info(f"🔍 DEBUG: patient_phone = '{patient_phone}'")
+    logger.info(f"🔍 DEBUG: patient_email = '{patient_email}'")
+    logger.info(f"🔍 DEBUG: patient_fiscal_code = '{patient_fiscal_code}'")
+
+    # Also check for patient data from test setup
+    patient_data_dict = flow_manager.state.get("patient_data", {})
+    patient_gender = flow_manager.state.get("patient_gender", patient_data_dict.get("gender", "m"))
+    patient_dob = flow_manager.state.get("patient_dob", patient_data_dict.get("date_of_birth", ""))
+
+    logger.info(f"🔍 DEBUG: patient_data_dict = {patient_data_dict}")
+    logger.info(f"🔍 DEBUG: patient_gender = '{patient_gender}'")
+    logger.info(f"🔍 DEBUG: patient_dob = '{patient_dob}'")
+
     reminder_auth = flow_manager.state.get("reminder_authorization", False)
     marketing_auth = flow_manager.state.get("marketing_authorization", False)
 
+    logger.info(f"🔍 DEBUG: reminder_authorization = {reminder_auth}")
+    logger.info(f"🔍 DEBUG: marketing_authorization = {marketing_auth}")
+
+    # Detailed validation check
+    validation_results = {
+        "selected_services": bool(selected_services),
+        "booked_slots": bool(booked_slots),
+        "patient_name": bool(patient_name),
+        "patient_surname": bool(patient_surname),
+        "patient_phone": bool(patient_phone),
+        "patient_email": bool(patient_email),
+        "patient_fiscal_code": bool(patient_fiscal_code)
+    }
+
+    logger.info(f"🔍 DEBUG: Validation results: {validation_results}")
+
+    missing_fields = [field for field, is_valid in validation_results.items() if not is_valid]
+    if missing_fields:
+        logger.error(f"❌ DEBUG: Missing required fields: {missing_fields}")
+
+        # Log the specific values of missing fields
+        for field in missing_fields:
+            if field == "selected_services":
+                logger.error(f"❌ {field}: {selected_services}")
+            elif field == "booked_slots":
+                logger.error(f"❌ {field}: {booked_slots}")
+            elif field == "patient_name":
+                logger.error(f"❌ {field}: '{patient_name}'")
+            elif field == "patient_surname":
+                logger.error(f"❌ {field}: '{patient_surname}'")
+            elif field == "patient_phone":
+                logger.error(f"❌ {field}: '{patient_phone}'")
+            elif field == "patient_email":
+                logger.error(f"❌ {field}: '{patient_email}'")
+            elif field == "patient_fiscal_code":
+                logger.error(f"❌ {field}: '{patient_fiscal_code}'")
+
     if not all([selected_services, booked_slots, patient_name, patient_surname,
                 patient_phone, patient_email, patient_fiscal_code]):
+        logger.error("❌ FINAL VALIDATION FAILED - Creating error node")
         from flows.nodes.completion import create_error_node
         return {
             "success": False,
@@ -374,9 +488,17 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
 async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
     """Perform the actual booking creation after TTS message"""
     try:
+        # COMPREHENSIVE DEBUG LOGGING FOR BOOKING CREATION
+        logger.info("🔍 DEBUG: === BOOKING CREATION STARTED ===")
+        logger.info(f"🔍 DEBUG: Args received: {args}")
+
         # Get stored booking parameters
         params = flow_manager.state.get("pending_booking_params", {})
+        logger.info(f"🔍 DEBUG: pending_booking_params exists: {bool(params)}")
+        logger.info(f"🔍 DEBUG: pending_booking_params keys: {list(params.keys()) if params else 'EMPTY'}")
+
         if not params:
+            logger.error("❌ DEBUG: No pending_booking_params found!")
             from flows.nodes.completion import create_error_node
             return {
                 "success": False,
@@ -395,6 +517,19 @@ async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: 
         patient_dob = params["patient_dob"]
         reminder_auth = params["reminder_auth"]
         marketing_auth = params["marketing_auth"]
+
+        logger.info(f"🔍 DEBUG: Extracted booking parameters:")
+        logger.info(f"   - selected_services: {selected_services}")
+        logger.info(f"   - booked_slots: {booked_slots}")
+        logger.info(f"   - patient_name: '{patient_name}'")
+        logger.info(f"   - patient_surname: '{patient_surname}'")
+        logger.info(f"   - patient_phone: '{patient_phone}'")
+        logger.info(f"   - patient_email: '{patient_email}'")
+        logger.info(f"   - patient_fiscal_code: '{patient_fiscal_code}'")
+        logger.info(f"   - patient_gender: '{patient_gender}'")
+        logger.info(f"   - patient_dob: '{patient_dob}'")
+        logger.info(f"   - reminder_auth: {reminder_auth}")
+        logger.info(f"   - marketing_auth: {marketing_auth}")
 
         # Import and call booking service
         from services.booking_api import create_booking
