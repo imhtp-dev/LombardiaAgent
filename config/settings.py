@@ -58,6 +58,14 @@ class Settings:
             "language": "it-IT",  # Italian language for Azure
             "sample_rate": 16000,
             "endpoint_id": os.getenv("AZURE_SPEECH_ENDPOINT_ID"),  # Optional custom model endpoint
+            # Phrase list for custom Italian healthcare keywords
+            # To test WITHOUT phrase list, set DISABLE_PHRASE_LIST=true in .env
+            "phrase_list": [] if os.getenv("DISABLE_PHRASE_LIST", "").lower() == "true" else [
+                "maschio",
+                "femmina",
+                "cerba healthcare"
+            ],
+            "phrase_list_weight": 1.5  # Boost recognition confidence for these phrases
         }
     
     @property

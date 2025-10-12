@@ -43,8 +43,8 @@ def list_slot(health_center_uuid, date_search, uuid_exam, gender='m', date_of_bi
 
 
     request_data = {
-        'gender': "m",
-        'date_of_birth': "1990-08-11",
+        'gender': gender,
+        'date_of_birth': date_of_birth,
         'health_services': uuid_exam,
         'start_date': date_search, # Date of appointment
         'start_time': start_time, # 2025-09-12 09:00:00+00

@@ -50,7 +50,11 @@ class CallLogger:
         # Create full path
         self.current_log_file = self.call_logs_dir / log_filename
 
-        # Add loguru handler to capture ALL logs (same format as terminal)
+        # Add loguru handler with session filter to capture only this session's logs
+        def session_filter(record):
+            # Only log messages from this session
+            return True  # We'll rely on the session-specific logger instead of global filtering
+
         self.handler_id = logger.add(
             str(self.current_log_file),
             format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
@@ -58,17 +62,24 @@ class CallLogger:
             enqueue=True,
             rotation=None,
             retention=None,
-            catch=True  # Catch all exceptions
+            catch=True,  # Catch all exceptions
+            filter=session_filter
         )
 
-        # Also capture Python logging (for Deepgram, FastAPI, etc.)
+        # Create session-specific Python logger instead of using global root logger
         import logging
+
+        # Create a session-specific logger name
+        session_logger_name = f"session_{session_id.replace('-', '_')}"
+        self.session_logger = logging.getLogger(session_logger_name)
+        self.session_logger.setLevel(logging.DEBUG)
 
         # Create a custom handler that writes to our log file
         class CallFileHandler(logging.Handler):
-            def __init__(self, log_file_path):
+            def __init__(self, log_file_path, session_id):
                 super().__init__()
                 self.log_file_path = log_file_path
+                self.session_id = session_id
 
             def emit(self, record):
                 try:
@@ -91,20 +102,23 @@ class CallLogger:
                     level = record.levelname
                     name = record.name
 
-                    # Format similar to loguru
-                    log_line = f"{timestamp} | {level: <8} | {name} - {message}\n"
+                    # Format similar to loguru with session info
+                    log_line = f"{timestamp} | {level: <8} | {name} | {self.session_id} - {message}\n"
 
                     with open(self.log_file_path, 'a', encoding='utf-8') as f:
                         f.write(log_line)
                 except Exception:
                     pass
 
-        # Add handler to capture all Python logging
-        self.python_handler = CallFileHandler(str(self.current_log_file))
+        # Create handler for this session only
+        self.python_handler = CallFileHandler(str(self.current_log_file), session_id)
         self.python_handler.setLevel(logging.DEBUG)
 
-        # Add to root logger to catch everything
-        logging.getLogger().addHandler(self.python_handler)
+        # Add to session-specific logger only (not global root logger)
+        self.session_logger.addHandler(self.python_handler)
+
+        # Prevent propagation to avoid duplicate logs in other sessions
+        self.session_logger.propagate = False
 
         # Log call start
         logger.info("🚀 CALL STARTED - FULL TERMINAL LOGGING ENABLED")
@@ -128,10 +142,12 @@ class CallLogger:
         # Remove loguru handler
         logger.remove(self.handler_id)
 
-        # Remove Python logging handler
-        if self.python_handler:
+        # Remove Python logging handler from session-specific logger
+        if self.python_handler and hasattr(self, 'session_logger'):
             import logging
-            logging.getLogger().removeHandler(self.python_handler)
+            self.session_logger.removeHandler(self.python_handler)
+            # Clear all handlers to ensure complete cleanup
+            self.session_logger.handlers.clear()
 
         log_file = str(self.current_log_file)
 
@@ -151,10 +167,15 @@ class CallLogger:
         # Reset state
         self.handler_id = None
         self.python_handler = None
+        self.session_logger = None
         self.current_session_id = None
         self.current_log_file = None
 
         return log_file
+
+    def get_session_logger(self):
+        """Get the session-specific logger for custom logging"""
+        return getattr(self, 'session_logger', None)
 
     def log_phone_debug(self, event: str, data: dict):
         """Log phone-related debugging information"""

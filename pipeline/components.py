@@ -6,6 +6,7 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.frames.frames import StartFrame
 from deepgram import LiveOptions
 from loguru import logger
 from typing import Union
@@ -13,16 +14,73 @@ from typing import Union
 try:
     from pipecat.services.azure.stt import AzureSTTService
     from pipecat.transcriptions.language import Language
+    import azure.cognitiveservices.speech as speechsdk
     AZURE_AVAILABLE = True
 except ImportError:
     AZURE_AVAILABLE = False
     Language = None
+    speechsdk = None
     logger.warning("Azure STT not available. Install with: pip install 'pipecat-ai[azure]'")
 
 from config.settings import settings
 
 
-def create_stt_service() -> Union[DeepgramSTTService, "AzureSTTService"]:
+class AzureSTTServiceWithPhrases(AzureSTTService):
+    """Extended Azure STT Service with phrase list support"""
+
+    def __init__(self, phrase_list=None, phrase_list_weight=1.0, **kwargs):
+        super().__init__(**kwargs)
+        self._phrase_list = phrase_list or []
+        self._phrase_list_weight = phrase_list_weight
+        self._phrase_list_grammar = None
+
+    def _setup_phrase_list(self, recognizer):
+        """Setup phrase list grammar for the recognizer"""
+        if not self._phrase_list or not speechsdk:
+            logger.info("🔍 No phrase list configured or Azure Speech SDK not available")
+            return
+
+        try:
+            logger.info(f"🎯 Setting up phrase list with {len(self._phrase_list)} phrases")
+            logger.debug(f"🎯 Phrases: {', '.join(self._phrase_list)}")
+
+            # Create phrase list grammar from recognizer
+            self._phrase_list_grammar = speechsdk.PhraseListGrammar.from_recognizer(recognizer)
+            logger.debug("🎯 Created PhraseListGrammar from recognizer")
+
+            # Add all phrases
+            for phrase in self._phrase_list:
+                self._phrase_list_grammar.addPhrase(phrase)
+                logger.debug(f"🎯 Added phrase: '{phrase}'")
+
+            # Set weight for phrase list (if method exists)
+            if hasattr(self._phrase_list_grammar, 'setWeight'):
+                self._phrase_list_grammar.setWeight(self._phrase_list_weight)
+                logger.debug(f"🎯 Set phrase list weight to: {self._phrase_list_weight}")
+            else:
+                logger.debug(f"🎯 PhraseListGrammar.setWeight() not available in this Azure SDK version")
+
+            logger.success(f"✅ Azure STT Phrase List Active: {len(self._phrase_list)} phrases with weight {self._phrase_list_weight}")
+            logger.info(f"🎯 Phrases should now be recognized better: {', '.join(self._phrase_list)}")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to setup phrase list: {e}")
+            import traceback
+            logger.debug(f"❌ Full error: {traceback.format_exc()}")
+
+    async def start(self, frame: StartFrame):
+        """Override start method to setup phrase list after recognizer creation"""
+        # Call parent start method first (this creates self._speech_recognizer)
+        await super().start(frame)
+
+        # Setup phrase list if speech recognizer exists
+        if hasattr(self, '_speech_recognizer') and self._speech_recognizer:
+            self._setup_phrase_list(self._speech_recognizer)
+        else:
+            logger.warning("⚠️ No speech recognizer found to setup phrase list")
+
+
+def create_stt_service() -> Union[DeepgramSTTService, "AzureSTTServiceWithPhrases"]:
     """Create and configure STT service based on provider setting"""
     provider = settings.stt_provider
 
@@ -71,8 +129,8 @@ def create_deepgram_stt_service() -> DeepgramSTTService:
         raise
 
 
-def create_azure_stt_service() -> "AzureSTTService":
-    """Create and configure Azure STT service"""
+def create_azure_stt_service() -> "AzureSTTServiceWithPhrases":
+    """Create and configure Azure STT service with phrase list support"""
     if not AZURE_AVAILABLE:
         logger.error("❌ Azure STT not available. Install with: pip install 'pipecat-ai[azure]'")
         raise ImportError("Azure STT service not available")
@@ -108,10 +166,15 @@ def create_azure_stt_service() -> "AzureSTTService":
         if config.get("endpoint_id"):
             service_params["endpoint_id"] = config["endpoint_id"]
 
-        stt_service = AzureSTTService(**service_params)
+        # Add phrase list support
+        if config.get("phrase_list"):
+            service_params["phrase_list"] = config["phrase_list"]
+            service_params["phrase_list_weight"] = config.get("phrase_list_weight", 1.0)
+
+        stt_service = AzureSTTServiceWithPhrases(**service_params)
 
         # ADD SUCCESS LOG
-        logger.success("✅ Azure STT service created successfully")
+        logger.success("✅ Azure STT service with phrase list created successfully")
         return stt_service
 
     except Exception as e:

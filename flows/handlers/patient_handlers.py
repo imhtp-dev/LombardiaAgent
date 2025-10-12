@@ -26,13 +26,13 @@ async def collect_address_and_transition(args: FlowArgs, flow_manager: FlowManag
 async def collect_gender_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
     """Collect gender and dynamically transition to DOB collection"""
     gender = args.get("gender", "").lower()
-    
+
     if gender in ["m", "f", "male", "female", "maschio", "femmina"]:
         # Normalize to m/f
         normalized_gender = "m" if gender in ["m", "male", "maschio"] else "f"
         flow_manager.state["patient_gender"] = normalized_gender
         logger.info(f"👤 Gender collected: {normalized_gender}")
-        
+
         from flows.nodes.patient_info import create_collect_dob_node
         return {"success": True, "gender": normalized_gender}, create_collect_dob_node()
     else:

@@ -363,5 +363,21 @@ SUMMARY (must in Italian):"""
         logger.info("🗑️ Transcript session cleared")
 
 
-# Global transcript manager instance
+# Session-specific transcript managers
+_transcript_managers = {}
+
+def get_transcript_manager(session_id: str) -> TranscriptManager:
+    """Get or create session-specific transcript manager"""
+    if session_id not in _transcript_managers:
+        _transcript_managers[session_id] = TranscriptManager()
+        logger.debug(f"📝 Created new transcript manager for session: {session_id}")
+    return _transcript_managers[session_id]
+
+def cleanup_transcript_manager(session_id: str) -> None:
+    """Clean up transcript manager for session"""
+    if session_id in _transcript_managers:
+        del _transcript_managers[session_id]
+        logger.debug(f"🗑️ Cleaned up transcript manager for session: {session_id}")
+
+# Global transcript manager instance (for backward compatibility)
 transcript_manager = TranscriptManager()

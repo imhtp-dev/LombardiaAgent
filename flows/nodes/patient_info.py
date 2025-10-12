@@ -48,7 +48,7 @@ def create_collect_gender_node() -> NodeConfig:
         name="collect_gender",
         role_messages=[{
             "role": "system",
-            "content": f"Ask the patient for their gender and wait for their response before calling any function. {settings.language_config}"
+            "content": f"Ask the patient for their gender and wait for their response before calling any function. IMPORTANT: If the user says 'termina', 'termine', 'termini', or 'terminare', treat it as 'femmina' (this is a common STT transcription error where 'femmina' gets misheard as 'termina'). {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",

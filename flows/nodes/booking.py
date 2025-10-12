@@ -7,8 +7,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, List
 from pipecat_flows import NodeConfig, FlowsFunctionSchema
+from loguru import logger
 
 from models.requests import HealthService, HealthCenter
+
+# Global variable to store current session's filtered slots for UUID lookup
+_current_session_slots = {}
 from flows.handlers.flow_handlers import generate_flow_and_transition, finalize_services_and_search_centers
 from flows.handlers.booking_handlers import (
     search_final_centers_and_transition,
@@ -19,7 +23,8 @@ from flows.handlers.booking_handlers import (
     select_slot_and_book,
     create_booking_and_transition,
     handle_booking_modification,
-    confirm_booking_summary_and_proceed
+    confirm_booking_summary_and_proceed,
+    update_date_and_search_slots
 )
 from config.settings import settings
 
@@ -279,7 +284,7 @@ def create_collect_datetime_node() -> NodeConfig:
                 properties={
                     "preferred_date": {
                         "type": "string",
-                        "description": "Preferred appointment date in YYYY-MM-DD format"
+                        "description": "Preferred appointment date in YYYY-MM-DD format. If user doesn't specify year, assume current year (2025). Examples: '24 November' → '2025-11-24', 'December 15' → '2025-12-15'"
                     },
                     "preferred_time": {
                         "type": "string",
@@ -323,7 +328,7 @@ def create_collect_datetime_node_for_service(service_name: str = None, is_multi_
                 properties={
                     "preferred_date": {
                         "type": "string",
-                        "description": "Preferred appointment date in YYYY-MM-DD format"
+                        "description": "Preferred appointment date in YYYY-MM-DD format. If user doesn't specify year, assume current year (2025). Examples: '24 November' → '2025-11-24', 'December 15' → '2025-12-15'"
                     },
                     "preferred_time": {
                         "type": "string",
@@ -361,20 +366,18 @@ def create_slot_search_node() -> NodeConfig:
     )
 
 
-def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cerba_member: bool = False) -> NodeConfig:
-    """Create slot selection node with human-friendly slot parsing and presentation"""
-    
+def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cerba_member: bool = False, user_preferred_date: str = None, time_preference: str = "any time") -> NodeConfig:
+    """Create slot selection node with progressive filtering and minimal LLM data"""
+
+    from loguru import logger
+
     # Parse and group slots by date
     slots_by_date = {}
     parsed_slots = []
 
-    # Debug: Log the first few raw slots to understand what we're working with
-    if slots:
-        from loguru import logger
-        logger.debug(f"🔧 Processing {len(slots)} raw slots for {service.name}")
-        for i, slot in enumerate(slots[:3]):
-            start_time = slot.get('start_time', 'N/A')
-            logger.debug(f"   Slot {i+1}: {start_time} -> UUID: {slot.get('providing_entity_availability_uuid', 'N/A')}")
+    logger.info(f"🔧 SMART FILTERING: Processing {len(slots)} raw slots for {service.name}")
+    logger.info(f"🔧 User preferred date: {user_preferred_date}")
+    logger.info(f"🔧 Time preference: {time_preference}")
 
     for slot in slots:
         # Convert UTC slot times to Italian local time for user display
@@ -401,7 +404,7 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
         # Format times in 24-hour format without leading zeros (Italian local time)
         start_time_24h = start_dt.strftime("%-H:%M")
         end_time_24h = end_dt.strftime("%-H:%M")
-        
+
         parsed_slot = {
             'original': slot,
             'date_key': date_key,
@@ -414,81 +417,122 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
             'health_center_name': slot.get('health_center', {}).get('name', ''),
             'service_name': slot.get('health_services', [{}])[0].get('name', service.name)
         }
-        
+
         parsed_slots.append(parsed_slot)
-        
+
         if date_key not in slots_by_date:
             slots_by_date[date_key] = []
         slots_by_date[date_key].append(parsed_slot)
-    
-    # Create human-like presentation with natural language
-    if len(slots_by_date) == 1:
-        # Same day - show available time slots in a conversational way
-        date_key, day_slots = list(slots_by_date.items())[0]
-        formatted_date = day_slots[0]['formatted_date']
-        
-        # Group by morning/afternoon for better presentation
-        morning_slots = [s for s in day_slots if s['start_dt'].hour < 12]
-        afternoon_slots = [s for s in day_slots if s['start_dt'].hour >= 12]
-        
-        # Create natural language slot presentation
-        if len(day_slots) == 1:
-            # Single slot - be very specific and natural
-            slot = day_slots[0]
-            task_content = f"Great! We have one slot available for {service.name} on {formatted_date} from {slot['start_time_24h']} to {slot['end_time_24h']}. Would you like me to book this appointment for you at {slot['start_time_24h']}?"
-        elif len(day_slots) <= 6:
-            # Few slots - show them in a natural way
-            if afternoon_slots and not morning_slots:
-                # Only afternoon slots
-                first_slot = afternoon_slots[0]
-                last_slot = afternoon_slots[-1] if len(afternoon_slots) > 1 else first_slot
-                task_content = f"We have appointments available for {service.name} in the afternoon on {formatted_date} from {first_slot['start_time_24h']} to {last_slot['end_time_24h']}. What time would work best for you? I can book you at {first_slot['start_time_24h']} or any other available time."
-            elif morning_slots and not afternoon_slots:
-                # Only morning slots
-                first_slot = morning_slots[0]
-                last_slot = morning_slots[-1] if len(morning_slots) > 1 else first_slot
-                task_content = f"We have appointments available for {service.name} in the morning on {formatted_date} from {first_slot['start_time_24h']} to {last_slot['end_time_24h']}. What time would work best for you? I can book you at {first_slot['start_time_24h']} or any other available time."
-            else:
-                # Both morning and afternoon
-                morning_first = morning_slots[0]['start_time_24h'] if morning_slots else None
-                afternoon_first = afternoon_slots[0]['start_time_24h'] if afternoon_slots else None
-                if morning_first and afternoon_first:
-                    task_content = f"We have appointments available for {service.name} on {formatted_date}. I can book you in the morning starting from {morning_first} or in the afternoon starting from {afternoon_first}. Which time preference would work better for you?"
-                else:
-                    first_slot = day_slots[0]
-                    task_content = f"We have appointments available for {service.name} on {formatted_date}. The earliest available time is at {first_slot['start_time_24h']}. Should I book this time for you or would you prefer a different time?"
+
+    logger.info(f"🔧 PARSED: Found slots for {len(slots_by_date)} different dates: {list(slots_by_date.keys())}")
+
+    # PROGRESSIVE FILTERING LOGIC
+    def filter_slots_by_time_preference(day_slots, preference):
+        """Filter slots by morning (8-12) or afternoon (12-19)"""
+        if preference == "morning":
+            return [slot for slot in day_slots if 8 <= slot['start_dt'].hour < 12]
+        elif preference == "afternoon":
+            return [slot for slot in day_slots if 12 <= slot['start_dt'].hour < 19]
         else:
-            # Many slots - group and be natural
-            availability_text = f"We have several appointments available for {service.name} on {formatted_date}:\n\n"
-            
-            if morning_slots:
-                morning_times = [f"{s['start_time_24h']} to {s['end_time_24h']}" for s in morning_slots[:3]]
-                availability_text += f"Morning times: {', '.join(morning_times)}\n"
-            
-            if afternoon_slots:
-                afternoon_times = [f"{s['start_time_24h']} to {s['end_time_24h']}" for s in afternoon_slots[:3]]
-                availability_text += f"Afternoon times: {', '.join(afternoon_times)}\n"
-            
-            task_content = f"{availability_text}\nWhat time works best for you? Just tell me your preferred time and I'll book it for you."
-        
+            return day_slots  # No time preference
+
+    # Step 1: Check if user's preferred date has slots
+    selected_slots_for_llm = []
+    task_content = ""
+
+    if user_preferred_date and user_preferred_date in slots_by_date:
+        logger.info(f"✅ SMART FILTERING: User's preferred date {user_preferred_date} has slots!")
+        day_slots = slots_by_date[user_preferred_date]
+
+        # Step 2: Apply time preference filtering
+        if time_preference in ["morning", "afternoon"]:
+            filtered_slots = filter_slots_by_time_preference(day_slots, time_preference)
+
+            if filtered_slots:
+                # User's date + time preference has slots
+                selected_slots_for_llm = filtered_slots[:8]  # Max 8 slots
+                time_period = "morning" if time_preference == "morning" else "afternoon"
+                formatted_date = day_slots[0]['formatted_date']
+                task_content = f"For {formatted_date} in the {time_period}, here are available time slots for your appointment:"
+                logger.info(f"✅ PERFECT MATCH: {len(selected_slots_for_llm)} {time_period} slots on {user_preferred_date}")
+            else:
+                # No slots for preferred time, offer alternatives
+                other_time_slots = filter_slots_by_time_preference(day_slots, "afternoon" if time_preference == "morning" else "morning")
+                alternative_time = "afternoon" if time_preference == "morning" else "morning"
+                formatted_date = day_slots[0]['formatted_date']
+
+                if other_time_slots:
+                    selected_slots_for_llm = other_time_slots[:8]
+                    task_content = f"Sorry, no {time_preference} slots available on {formatted_date}. However, we have {alternative_time} appointments available:"
+                    logger.info(f"⚠️ FALLBACK: No {time_preference} slots, showing {len(selected_slots_for_llm)} {alternative_time} slots")
+                else:
+                    # No slots for this date at all in any time, show other dates
+                    available_dates = [f"{slots_by_date[date][0]['formatted_date']} ({len(slots_by_date[date])} slots)"
+                                     for date in sorted(slots_by_date.keys()) if date != user_preferred_date]
+                    dates_text = "\n- ".join(available_dates)
+                    task_content = f"Sorry, no appointments available on {formatted_date}. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer?"
+                    logger.info(f"❌ NO SLOTS: User's preferred date has no slots in any time period")
+        else:
+            # No time preference, show all slots for the day
+            selected_slots_for_llm = day_slots[:8]  # Max 8 slots
+            formatted_date = day_slots[0]['formatted_date']
+            task_content = f"For {formatted_date}, here are available time slots for your appointment:"
+            logger.info(f"✅ WHOLE DAY: {len(selected_slots_for_llm)} slots for {user_preferred_date}")
+
     else:
-        # Multiple days - show available dates and suggest choosing one
+        # User's preferred date not available, show available dates
         available_dates = []
-        for date_key in sorted(slots_by_date.keys())[:3]:  # Show max 3 dates
+        for date_key in sorted(slots_by_date.keys()):
             day_slots = slots_by_date[date_key]
             formatted_date = day_slots[0]['formatted_date']
             slots_count = len(day_slots)
             available_dates.append(f"{formatted_date} ({slots_count} slots available)")
-        
+
         dates_text = "\n- ".join(available_dates)
-        task_content = f"We have appointments available on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Then I'll show you the available times for that day."
+        if user_preferred_date:
+            task_content = f"Sorry, no appointments available on your preferred date. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Once you choose a date, I'll show you the available times for that date."
+            logger.info(f"❌ DATE UNAVAILABLE: User's preferred date {user_preferred_date} not in available dates")
+        else:
+            task_content = f"We have appointments available on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Then I'll show you the available times."
+            logger.info(f"ℹ️ DATE SELECTION: Showing {len(slots_by_date)} available dates")
+
+    # Step 3: Create MINIMAL slot data for LLM AND store full slot data globally
+    if selected_slots_for_llm:
+        # Store the selected slots for UUID lookup later
+        global _current_session_slots
+        _current_session_slots = {}
+
+        minimal_slots_for_llm = []
+        for slot in selected_slots_for_llm:
+            time_key = slot['start_time_24h']
+            _current_session_slots[time_key] = slot  # Store full slot data by time
+
+            minimal_slots_for_llm.append({
+                'time': slot['start_time_24h'],
+                'uuid': slot['providing_entity_availability_uuid'],
+                'date': slot['date_key']
+            })
+
+        slot_context = {
+            'available_times': [slot['time'] for slot in minimal_slots_for_llm],
+            'service_name': service.name,
+            'slot_count': len(minimal_slots_for_llm),
+            'time_to_uuid_map': {slot['time']: slot['uuid'] for slot in minimal_slots_for_llm}
+        }
+
+        logger.success(f"🚀 OPTIMIZED: Sending only {len(minimal_slots_for_llm)} slots to LLM instead of {len(slots)}")
+        logger.info(f"🚀 Times being sent: {[slot['time'] for slot in minimal_slots_for_llm]}")
+        logger.info(f"🚀 Time→UUID mapping: {slot_context['time_to_uuid_map']}")
+    else:
+        # No specific slots selected, just dates
+        slot_context = {
+            'available_dates': list(slots_by_date.keys()),
+            'service_name': service.name,
+            'total_slots': len(slots)
+        }
+        logger.info(f"🚀 DATE SELECTION: Sending date options to LLM")
     
-    # Create the slot selection context with all required booking info
-    slot_context = {
-        'parsed_slots': parsed_slots,
-        'service_name': service.name,
-        'available_slots_count': len(slots)
-    }
+    # NOTE: task_content and slot_context are already set by the smart filtering logic above
     
     return NodeConfig(
         name="slot_selection",
@@ -496,22 +540,31 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
             "role": "system",
             "content": f"""It's currently 2025. Help the patient select from available appointment slots for {service.name}.
 
-You have {len(slots)} available slots. When presenting slots:
+🎯 OPTIMIZED SLOT PRESENTATION: Only the most relevant slots have been pre-filtered for you based on user preferences.
+
+{slot_context.get('slot_count', 'Unknown')} carefully selected slots. When presenting times:
 - ALWAYS use 24-hour time format (e.g., 13:40, 15:30) - NEVER convert to 12-hour format
-- CRITICAL: ONLY present times that actually exist in the available slots - DO NOT mention any times that aren't available
-- IMPORTANT: When speaking times aloud, always say them in words never digits:
-  * Italian: "nove e zero" for 9:00, "nove e quindici" for 9:15, "tredici e quaranta" for 13:40, "dodici e quarantacinque" for 12:45
-  * English: "nine o'clock" for 9:00, "nine fifteen" for 9:15, "thirteen forty" for 13:40, "twelve forty-five" for 12:45
+- CRITICAL: ONLY present times from this list: {slot_context.get('available_times', [])}
+- IMPORTANT: When speaking times aloud, say them in words:
+  * Italian: "nove e zero" for 9:00, "nove e quindici" for 9:15, "tredici e quaranta" for 13:40
+  * English: "nine o'clock" for 9:00, "nine fifteen" for 9:15, "thirteen forty" for 13:40
 
-- IMPORTANT: When calling function, always use digits never use words:
-  * Italian:  9:00 for "nove e zero" , 9:15 for "nove e quindici" , 13:40 for "tredici e quaranta" , 12:45 for "dodici e quarantacinque" 
-  * English:  9:00 for "nine o'clock" , 9:15 for "nine fifteen" ,  13:40" for thirteen forty" , 12:45 for "twelve forty-five" 
-
+- IMPORTANT: When calling function, use digits: 9:00, 9:15, 13:40, etc.
 - Never mention prices, UUIDs, or technical details
 - Be conversational and human
-- IMPORTANT: Before suggesting any time, verify it exists in the available slots list
 
-Available slot data: {slot_context} {settings.language_config}"""
+🚀 AVAILABLE TIMES: {slot_context.get('available_times', [])}
+
+⚡ CRITICAL: TIME→UUID MAPPING for function calls:
+{slot_context.get('time_to_uuid_map', {})}
+
+🚨 MANDATORY: When user selects a time, you MUST:
+1. Find the time in the mapping above (e.g., if user says "17:15", look for "17:15" in the mapping)
+2. Use the corresponding UUID value (NOT the time) as providing_entity_availability_uuid
+3. EXAMPLE: If mapping shows {{"17:15": "05ee29df-7257-4beb-9b46-0efb0625d686"}}
+   → providing_entity_availability_uuid = "05ee29df-7257-4beb-9b46-0efb0625d686" (NOT "17:15")
+
+{settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",
@@ -525,7 +578,7 @@ Available slot data: {slot_context} {settings.language_config}"""
                 properties={
                     "providing_entity_availability_uuid": {
                         "type": "string",
-                        "description": "UUID of the providing entity availability for the selected slot"
+                        "description": "CRITICAL: Must be the UUID value from the time→UUID mapping (e.g., '05ee29df-7257-4beb-9b46-0efb0625d686'), NOT the time itself. Look up the time in the mapping and use the corresponding UUID value."
                     },
                     "selected_time": {
                         "type": "string",
@@ -537,6 +590,23 @@ Available slot data: {slot_context} {settings.language_config}"""
                     }
                 },
                 required=["providing_entity_availability_uuid"]
+            ),
+            FlowsFunctionSchema(
+                name="update_date_preference",
+                handler=update_date_and_search_slots,
+                description="Update the preferred date when user chooses a different date from the available options and immediately search for slots",
+                properties={
+                    "preferred_date": {
+                        "type": "string",
+                        "description": "New preferred appointment date in YYYY-MM-DD format (e.g., '2025-11-26'). Must be one of the available dates shown above."
+                    },
+                    "time_preference": {
+                        "type": "string",
+                        "description": "Time preference: 'morning' (8:00-12:00), 'afternoon' (12:00-19:00), or 'any' (no preference). Default is to preserve existing time preference.",
+                        "default": "preserve_existing"
+                    }
+                },
+                required=["preferred_date"]
             )
         ]
     )
@@ -715,13 +785,13 @@ def create_booking_summary_confirmation_node(selected_services: List[HealthServi
 
 **Total Cost:** {int(total_cost)} euro{membership_text}
 
-Would you like to proceed with this booking? If yes, I'll just need to collect some personal information to complete your appointment. If the cost is too high or you'd like to change anything, just let me know."""
+Would you like to proceed with this booking? If yes, I'll just need to collect some personal information to complete your appointment. If you'd like to change the time slot, I can show you other available times for the same service and date."""
 
     return NodeConfig(
         name="booking_summary_confirmation",
         role_messages=[{
             "role": "system",
-            "content": f"CRITICAL: You must present EXACTLY the booking summary provided below. DO NOT change, modify, or hallucinate any times, dates, services, or prices. Use ONLY the exact information from the summary content. DO NOT mention any times other than what is explicitly written in the summary. This is just a summary - the actual booking will be created after collecting personal details. Ask for confirmation before proceeding to personal information collection. If the patient wants to cancel or change something, be helpful and offer alternatives. {settings.language_config}"
+            "content": f"CRITICAL: You must present EXACTLY the booking summary provided below. DO NOT change, modify, or hallucinate any times, dates, services, or prices. Use ONLY the exact information from the summary content. DO NOT mention any times other than what is explicitly written in the summary. This is just a summary - the actual booking will be created after collecting personal details. Ask for confirmation before proceeding to personal information collection. If the patient wants to change the time, use action='change' to show other available times for the same service and date. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -736,7 +806,7 @@ Would you like to proceed with this booking? If yes, I'll just need to collect s
                     "action": {
                         "type": "string",
                         "enum": ["proceed", "cancel", "change"],
-                        "description": "proceed to continue with booking, cancel to stop, change to modify booking"
+                        "description": "proceed: continue with current booking, cancel: stop completely, change: modify the time slot (keeps same service and date but shows other available times)"
                     }
                 },
                 required=["action"]

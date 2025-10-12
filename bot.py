@@ -56,7 +56,7 @@ from services.config import config
 from pipeline.components import create_stt_service, create_tts_service, create_llm_service, create_context_aggregator
 
 # Import transcript manager for conversation recording and call data extraction
-from services.transcript_manager import transcript_manager
+from services.transcript_manager import get_transcript_manager, cleanup_transcript_manager
 
 load_dotenv(override=True)
 
@@ -278,41 +278,51 @@ async def websocket_endpoint(websocket: WebSocket):
             """Handle transcript updates from TranscriptProcessor"""
             logger.info(f"📝 Transcript update received with {len(frame.messages)} messages")
 
+            # Get session-specific transcript manager
+            session_transcript_manager = get_transcript_manager(session_id)
+
             for message in frame.messages:
                 logger.info(f"📝 Recording {message.role} message: '{message.content[:50]}{'...' if len(message.content) > 50 else ''}'")
 
                 if message.role == "user":
-                    transcript_manager.add_user_message(message.content)
+                    session_transcript_manager.add_user_message(message.content)
                 elif message.role == "assistant":
-                    transcript_manager.add_assistant_message(message.content)
+                    session_transcript_manager.add_assistant_message(message.content)
 
-            logger.info(f"📊 Transcript now has {len(transcript_manager.conversation_log)} messages")
+            logger.info(f"📊 Transcript now has {len(session_transcript_manager.conversation_log)} messages")
 
         logger.info("✅ All services initialized")
 
-        # CREATE PIPELINE WITH TRANSCRIPT PROCESSORS
+        # CREATE USER IDLE PROCESSOR FOR HANDLING TRANSCRIPTION FAILURES
+        from services.idle_handler import create_user_idle_processor
+        user_idle_processor = create_user_idle_processor(timeout_seconds=30.0)
+        logger.info("🕐 UserIdleProcessor created (30s timeout - accounts for API processing delays)")
+
+        # CREATE PIPELINE WITH TRANSCRIPT PROCESSORS AND IDLE HANDLING
         pipeline = Pipeline([
             transport.input(),
             stt,
-            transcript_processor.user(),  # Capture user transcriptions
+            user_idle_processor,                      # Add idle detection after STT
+            transcript_processor.user(),              # Capture user transcriptions
             context_aggregator.user(),
             llm,
             tts,
             transport.output(),
-            transcript_processor.assistant(),  # Capture assistant responses
+            transcript_processor.assistant(),         # Capture assistant responses
             context_aggregator.assistant()
         ])
 
         logger.info("Healthcare Flow Pipeline structure:")
         logger.info("  1. Input (PCM from bridge)")
         logger.info("  2. Deepgram STT")
-        logger.info("  3. TranscriptProcessor.user() - Capture user transcriptions")
-        logger.info("  4. Context Aggregator (User)")
-        logger.info("  5. OpenAI LLM (with flows)")
-        logger.info("  6. ElevenLabs TTS")
-        logger.info("  7. Output (PCM to bridge)")
-        logger.info("  8. TranscriptProcessor.assistant() - Capture assistant responses")
-        logger.info("  9. Context Aggregator (Assistant)")
+        logger.info("  3. UserIdleProcessor - Handle transcription failures & silence")
+        logger.info("  4. TranscriptProcessor.user() - Capture user transcriptions")
+        logger.info("  5. Context Aggregator (User)")
+        logger.info("  6. OpenAI LLM (with flows + gender node termina→femmina correction)")
+        logger.info("  7. ElevenLabs TTS")
+        logger.info("  8. Output (PCM to bridge)")
+        logger.info("  9. TranscriptProcessor.assistant() - Capture assistant responses")
+        logger.info("  10. Context Aggregator (Assistant)")
 
         # Create pipeline task
         task = PipelineTask(
@@ -375,9 +385,10 @@ async def websocket_endpoint(websocket: WebSocket):
             }
 
             # Start transcript recording session
-            transcript_manager.start_session(session_id)
+            session_transcript_manager = get_transcript_manager(session_id)
+            session_transcript_manager.start_session(session_id)
             logger.info(f"📝 Started transcript recording for session: {session_id}")
-            logger.info(f"📊 Transcript manager initialized with {len(transcript_manager.conversation_log)} messages")
+            logger.info(f"📊 Transcript manager initialized with {len(session_transcript_manager.conversation_log)} messages")
 
             # Initialize flow manager
             try:
@@ -393,7 +404,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # Extract and store call data before cleanup
             try:
                 logger.info(f"📊 Extracting call data for session: {session_id}")
-                success = await transcript_manager.extract_and_store_call_data(flow_manager)
+                session_transcript_manager = get_transcript_manager(session_id)
+                success = await session_transcript_manager.extract_and_store_call_data(flow_manager)
                 if success:
                     logger.success(f"✅ Call data extracted and stored successfully for session: {session_id}")
                 else:
@@ -401,8 +413,8 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception as e:
                 logger.error(f"❌ Error during call data extraction: {e}")
 
-            # Clear transcript session
-            transcript_manager.clear_session()
+            # Clear transcript session and cleanup
+            cleanup_transcript_manager(session_id)
 
             # Cleanup
             if session_id in active_sessions:
@@ -417,7 +429,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # Extract and store call data before cleanup (even on timeout)
             try:
                 logger.info(f"📊 Extracting call data for timed-out session: {session_id}")
-                success = await transcript_manager.extract_and_store_call_data(flow_manager)
+                session_transcript_manager = get_transcript_manager(session_id)
+                success = await session_transcript_manager.extract_and_store_call_data(flow_manager)
                 if success:
                     logger.success(f"✅ Call data extracted and stored for timed-out session: {session_id}")
                 else:
@@ -425,8 +438,8 @@ async def websocket_endpoint(websocket: WebSocket):
             except Exception as e:
                 logger.error(f"❌ Error during timeout call data extraction: {e}")
 
-            # Clear transcript session
-            transcript_manager.clear_session()
+            # Clear transcript session and cleanup
+            cleanup_transcript_manager(session_id)
 
             # Cleanup
             if session_id in active_sessions:
