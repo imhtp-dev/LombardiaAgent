@@ -22,7 +22,6 @@ from flows.handlers.booking_handlers import (
     search_slots_and_transition,
     select_slot_and_book,
     create_booking_and_transition,
-    handle_booking_modification,
     confirm_booking_summary_and_proceed,
     update_date_and_search_slots
 )
@@ -159,14 +158,23 @@ def create_final_center_search_node() -> NodeConfig:
 def create_final_center_selection_node(centers: List[HealthCenter], services: List[HealthService]) -> NodeConfig:
     """Create final center selection node with top 3 centers"""
     top_centers = centers[:3]
-    center_options = "\n\n".join([f"**{center.name}** in {center.city}\nAddress: {center.address}" for center in top_centers])
     service_names = ", ".join([s.name for s in services])
-    
-    task_content = f"""Perfect! I found these health centers that can provide your services ({service_names}):
 
-{center_options}
+    # Create paragraph-style listing of health centers
+    if len(top_centers) == 1:
+        centers_text = f"The available health center is {top_centers[0].name}."
+    elif len(top_centers) == 2:
+        centers_text = f"The first one is {top_centers[0].name}, and the second is {top_centers[1].name}."
+    elif len(top_centers) == 3:
+        centers_text = f"The first one is {top_centers[0].name}, the second is {top_centers[1].name}, and the third is {top_centers[2].name}."
+    else:
+        # Fallback for more than 3 centers
+        centers_list = [f"the {'first' if i == 0 else 'second' if i == 1 else 'third' if i == 2 else str(i+1)+'th'} one is {center.name}" for i, center in enumerate(top_centers)]
+        centers_text = ", ".join(centers_list[:-1]) + f", and {centers_list[-1]}."
 
-Which health center would you prefer for your appointment? Just tell me the name or number."""
+    task_content = f"""Here are some health centers that offer {service_names}. {centers_text}
+
+Which one would you like to choose for your appointment?"""
     
     return NodeConfig(
         name="final_center_selection",
@@ -265,12 +273,37 @@ def create_cerba_membership_node() -> NodeConfig:
 
 
 def create_collect_datetime_node() -> NodeConfig:
-    """Create date and time collection node"""
+    """Create date and time collection node with LLM-driven natural language support"""
+    from datetime import datetime
+
+    # Get today's complete date information for LLM context
+    today = datetime.now()
+    today_date = today.strftime("%Y-%m-%d")
+    today_day = today.strftime("%A")  # Full day name (e.g., "Thursday")
+    today_formatted = today.strftime("%B %d, %Y")  # e.g., "October 16, 2025"
+
     return NodeConfig(
         name="collect_datetime",
         role_messages=[{
             "role": "system",
-            "content": f"The current year is 2025. Collect the preferred date and optional time for the appointment. If the user says 'morning' or mentions morning time, prefer 8:00-12:00 (24-hour clock). If they say 'afternoon' or mention afternoon time, prefer 12:00-19:00 (24-hour clock). Always use and display the 24-hour clock (e.g., 1:40 PM, 3:30 PM) - NEVER convert to 12-hour clock. Internally convert the user's natural language date to YYY-MM-DD format. Be flexible with user input formats. Speak naturally like a human. {settings.language_config}"
+            "content": f"""Today is {today_day}, {today_formatted} (date: {today_date}). The current year is 2025.
+
+You can understand natural language date expressions and calculate the correct dates automatically. When a patient mentions expressions like:
+- "tomorrow" → calculate the next day
+- "next Friday" → calculate the next Friday from today
+- "next week" → calculate 7 days from today
+- "next month" → calculate approximately 30 days from today
+- "next Thursday" → calculate the next Thursday (if today is Thursday, it means the following Thursday)
+
+IMPORTANT:
+- If the user says 'morning' or mentions morning time, set time_preference to "morning" (8:00-12:00)
+- If they say 'afternoon' or mention afternoon time, set time_preference to "afternoon" (12:00-19:00)
+- If they mention a specific time, set time_preference to "specific"
+- If no time preference mentioned, set time_preference to "any"
+
+Calculate the exact date in YYYY-MM-DD format and call the collect_datetime function directly.
+
+Always use 24-hour time format. Be flexible with user input formats. Speak naturally like a human. {settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",
@@ -284,11 +317,11 @@ def create_collect_datetime_node() -> NodeConfig:
                 properties={
                     "preferred_date": {
                         "type": "string",
-                        "description": "Preferred appointment date in YYYY-MM-DD format. If user doesn't specify year, assume current year (2025). Examples: '24 November' → '2025-11-24', 'December 15' → '2025-12-15'"
+                        "description": "Preferred appointment date in YYYY-MM-DD format. Calculate from natural language expressions using today's date context. Examples: if today is 2025-10-16 (Thursday) and user says 'next Friday' → '2025-10-24', 'tomorrow' → '2025-10-17', 'next Thursday' → '2025-10-23'"
                     },
                     "preferred_time": {
                         "type": "string",
-                        "description": "Preferred appointment time (specific time like '9:00', '14:30' or time range like 'morning', 'afternoon'')"
+                        "description": "Preferred appointment time (specific time like '9:00', '14:30' or time range like 'morning', 'afternoon')"
                     },
                     "time_preference": {
                         "type": "string",
@@ -708,28 +741,11 @@ def create_no_slots_node(date: str, time_preference: str = "any time") -> NodeCo
     )
 
 
-def _extract_clean_center_name(center_name: str) -> str:
-    """Extract clean center name from full name that contains address info"""
-    # Center names come in format: "City Address - Brand Name"
-    # Example: "Rozzano Viale Toscana 35/37 - Delta Medica"
-    # We want to extract just: "Delta Medica" or "City - Brand Name"
-
-    if " - " in center_name:
-        # Split by " - " and take the brand name part
-        parts = center_name.split(" - ")
-        if len(parts) >= 2:
-            # Return the last part (brand name)
-            return parts[-1].strip()
-
-    # Fallback: return the original name
-    return center_name
-
 
 def create_booking_summary_confirmation_node(selected_services: List[HealthService], selected_slots: List[Dict], selected_center: HealthCenter, total_cost: float, is_cerba_member: bool = False) -> NodeConfig:
     """Create booking summary confirmation node with all details before personal info collection"""
 
-    # Extract clean center name
-    clean_center_name = _extract_clean_center_name(selected_center.name)
+    # Use full center name directly
 
     # Format service details
     services_text = []
@@ -780,8 +796,7 @@ def create_booking_summary_confirmation_node(selected_services: List[HealthServi
 {services_summary}
 
 **Health Center:**
-{clean_center_name}
-{selected_center.address}
+{selected_center.name}
 
 **Total Cost:** {int(total_cost)} euro{membership_text}
 

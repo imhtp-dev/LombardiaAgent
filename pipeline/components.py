@@ -186,7 +186,7 @@ def create_azure_stt_service() -> "AzureSTTServiceWithPhrases":
 def create_tts_service() -> ElevenLabsTTSService:
     """Create and configure ElevenLabs TTS service"""
     config = settings.elevenlabs_config
-    
+
     return ElevenLabsTTSService(
         api_key=config["api_key"],
         voice_id=config["voice_id"],

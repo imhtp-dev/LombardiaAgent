@@ -193,3 +193,4 @@ class CerbaAPIService:
 
 # Global API service instance
 cerba_api = CerbaAPIService()
+

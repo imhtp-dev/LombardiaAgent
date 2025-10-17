@@ -191,6 +191,7 @@ async def check_cerba_membership_and_transition(args: FlowArgs, flow_manager: Fl
     }, create_collect_datetime_node()
 
 
+
 async def collect_datetime_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
     """Collect preferred date and optional time preference for appointment"""
     preferred_date = args.get("preferred_date", "").strip()

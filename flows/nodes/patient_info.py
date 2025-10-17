@@ -135,10 +135,7 @@ def create_verify_basic_info_node(address: str, gender: str, dob: str, birth_cit
 
     verification_text = f"""Verify the information I've collected:
 
-Address: {address}
-Gender: {gender_display}
-Date of Birth: {dob}
-Birth City: {birth_city}
+Your Address is {address}, your gender is {gender_display}, date of birth {dob} and your birth city is {birth_city}. 
 
 Is this data correct? Answer "yes" if it's correct, or tell me what needs to be changed."""
 
@@ -146,7 +143,7 @@ Is this data correct? Answer "yes" if it's correct, or tell me what needs to be 
         name="verify_basic_info",
         role_messages=[{
             "role": "system",
-            "content": f"Present patient information for verification. If user answers 'yes', confirm all details. If user wants to change something specific (e.g. 'change gender to male'), update only that field. Listen for what they want to change and extract the field name and new value. {settings.language_config}"
+            "content": f"Present patient information in a 'paragraph or sentence' for verification. If user answers 'yes', confirm all details. If user wants to change something specific (e.g. 'change gender to male'), update only that field. Listen for what they want to change and extract the field name and new value. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
