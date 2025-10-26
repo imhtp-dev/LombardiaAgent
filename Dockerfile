@@ -36,7 +36,8 @@ RUN python -c "import nltk; nltk.download('punkt_tab', download_dir='/usr/local/
 # PyTorch models layer (rarely changes)
 FROM nltk-data as torch-models
 RUN mkdir -p /opt/torch && \
-    python -c "import torch; torch.hub.set_dir('/opt/torch'); torch.hub.load('snakers4/silero-vad', 'silero_vad', force_reload=True)"
+    python -c "import torch; torch.hub.set_dir('/opt/torch'); torch.hub.load('snakers4/silero-vad', 'silero_vad', force_reload=True)" || \
+    echo "Using cached PyTorch models if available"
 
 # Application layer (changes frequently)
 FROM torch-models as app

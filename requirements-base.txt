@@ -3,34 +3,34 @@
 
 # Core Pipecat with all extras
 pipecat-ai[daily,openai,silero,deepgram,elevenlabs,azure]
-pipecat-ai-flows>=0.0.20
+pipecat-ai-flows==0.0.21
 
 # PyTorch (large downloads)
-torch>=2.0.0
-torchaudio>=2.0.0
+torch==2.8.0
+torchaudio==2.8.0
 
 # Core AI services
-deepgram-sdk
-openai
-anthropic>=0.67.0
-google-genai>=1.36.0
+deepgram-sdk== 4.7.0
+openai==1.99.1
+anthropic==0.69.0
+google-genai==1.43.0
 
 # Web framework
-fastapi>=0.100.0
-uvicorn>=0.36.0
-websockets
+fastapi==0.119.0
+uvicorn==0.37.0
+websockets==15.0.1
 
 # Core Python libraries
-requests>=2.32.5
-aiohttp>=3.8.0
-pydantic>=2.0.0
-numpy
-uvloop>=0.17.0
+requests==2.32.5
+aiohttp==3.13.0
+pydantic==2.12.0
+numpy==2.2.6
+uvloop==0.21.0
 
 # Utilities
-python-dotenv~=1.0.1
-loguru>=0.7.0
-charset_normalizer>=3.4.3
-urllib3>=2.5.0
-python-json-logger>=3.3.0
-rapidfuzz>=3.0.0
+python-dotenv==1.0.1
+loguru==0.7.3
+urllib3==2.5.0
+python-json-logger==4.0.0
+rapidfuzz==3.14.1
+

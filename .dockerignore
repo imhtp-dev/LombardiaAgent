@@ -28,7 +28,7 @@ env/
 logs/
 call_logs/
 recordings/
-data/
+# data/  # COMMENTED OUT - We need data folder for local services!
 temp/
 tmp/
 cache/
@@ -64,6 +64,7 @@ test.py
 # Large data files
 *.json
 !requirements*.txt
+!data/all_services.json  # ALLOW this file - needed for local data service!
 city_codes.json
 
 # Additional Python and development files

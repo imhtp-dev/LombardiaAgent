@@ -234,7 +234,7 @@ SUMMARY (must in Italian):"""
             if final_booking.get("code"):
                 fallback_parts.append(f"Booking created with code: {final_booking.get('code')}")
 
-        # Add personal details
+        # Add personal details 
         return self._append_personal_details_to_summary("\n".join(fallback_parts), flow_manager)
 
     async def extract_and_store_call_data(self, flow_manager) -> bool:

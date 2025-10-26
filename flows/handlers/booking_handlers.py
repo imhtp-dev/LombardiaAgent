@@ -973,13 +973,50 @@ async def confirm_booking_summary_and_proceed(args: FlowArgs, flow_manager: Flow
     action = args.get("action", "")
 
     if action == "proceed":
-        logger.info("✅ Booking summary confirmed, proceeding to collect personal information")
+        logger.info("✅ Booking summary confirmed, proceeding to patient lookup and personal information collection")
 
-        # Transition to name collection to start personal info gathering
+        # PHONE + DOB LOOKUP LOGIC
+        # Get phone number from Talkdesk bridge
+        caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+        # Get DOB from patient info collection (already collected earlier in flow)
+        patient_dob = flow_manager.state.get("patient_dob", "")
+
+        logger.info(f"🔍 Attempting patient lookup with phone and DOB")
+
+        # Try to find existing patient
+        if caller_phone and patient_dob:
+            from services.patient_lookup import lookup_by_phone_and_dob, populate_patient_state
+
+            # Perform lookup
+            found_patient = lookup_by_phone_and_dob(caller_phone, patient_dob)
+
+            if found_patient:
+                # Patient found in database
+                logger.success(f"✅ Patient found in database: {found_patient.get('first_name', '')} {found_patient.get('last_name', '')}")
+
+                # Populate flow state with patient data
+                populate_patient_state(flow_manager, found_patient)
+
+                # Transition to patient summary confirmation
+                from flows.nodes.patient_summary import create_patient_summary_node
+                return {
+                    "success": True,
+                    "message": "Patient found in database, showing summary for confirmation",
+                    "patient_found": True
+                }, create_patient_summary_node(found_patient)
+            else:
+                # Patient not found, proceed with normal name collection
+                logger.info("❌ Patient not found in database, proceeding with normal data collection")
+        else:
+            # Missing phone or DOB for lookup
+            logger.warning(f"⚠️ Cannot perform patient lookup: missing phone ({bool(caller_phone)}) or DOB ({bool(patient_dob)})")
+
+        # Fallback: Normal name collection flow for new patients
         from flows.nodes.patient_details import create_collect_name_node
         return {
             "success": True,
-            "message": "Booking confirmed, starting personal information collection"
+            "message": "Booking confirmed, starting personal information collection",
+            "patient_found": False
         }, create_collect_name_node()
 
     elif action == "cancel":

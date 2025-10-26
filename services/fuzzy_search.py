@@ -7,7 +7,7 @@ import logging
 from typing import List, Set, Tuple, Dict, Any
 from rapidfuzz import fuzz, process
 from models.requests import HealthService, ServiceSearchResponse
-from services.cerba_api import cerba_api
+from services.local_data_service import local_data_service
 from services.config import config
 
 logger = logging.getLogger(__name__)
@@ -25,22 +25,22 @@ class FuzzySearchService:
         self._cache_expiry_seconds = config.CACHE_EXPIRY_HOURS * 3600
     
     def _get_services(self) -> List[HealthService]:
-        """Get cached services or fetch fresh ones"""
+        """Get cached services or fetch fresh ones from local data"""
         import time
         current_time = time.time()
-        
-        if (self._services_cache is None or 
+
+        if (self._services_cache is None or
             (current_time - self._cache_time) > self._cache_expiry_seconds):
-            logger.info("Fetching fresh services for fuzzy search")
+            logger.info("Loading services from local data for fuzzy search")
             try:
-                self._services_cache = cerba_api.get_health_services()
+                self._services_cache = local_data_service.get_health_services()
                 self._cache_time = current_time
-                logger.info(f"Cached {len(self._services_cache)} services for fuzzy search")
+                logger.info(f"Cached {len(self._services_cache)} services from local data for fuzzy search")
             except Exception as e:
-                logger.error(f"Failed to refresh fuzzy search cache: {e}")
+                logger.error(f"Failed to load services from local data: {e}")
                 if self._services_cache is None:
                     self._services_cache = []
-        
+
         return self._services_cache
     
     def _expand_search_terms(self, search_term: str) -> Set[str]:
@@ -141,6 +141,10 @@ class FuzzySearchService:
         
         return final_score
     
+    def search(self, search_term: str, limit: int = None) -> ServiceSearchResponse:
+        """Alias for search_services for compatibility"""
+        return self.search_services(search_term, limit)
+
     def search_services(self, search_term: str, limit: int = None) -> ServiceSearchResponse:
         """
         Enhanced fuzzy search for health services

@@ -37,18 +37,31 @@ class Config:
     @classmethod
     def validate(cls) -> bool:
         """Validate that all required configuration is present"""
-        required_fields = [
+        # Cerba API credentials are optional when using local data service
+        cerba_fields = [
             cls.CERBA_TOKEN_URL,
             cls.CERBA_CLIENT_ID,
             cls.CERBA_CLIENT_SECRET,
             cls.CERBA_BASE_URL
         ]
-        
-        missing_fields = [field for field in required_fields if not field]
-        
-        if missing_fields:
-            raise ValueError(f"Missing required configuration: {missing_fields}")
-        
+
+        # Check if any Cerba credentials are provided
+        cerba_provided = any(field for field in cerba_fields)
+
+        if cerba_provided:
+            # If some Cerba credentials are provided, all must be provided
+            missing_cerba = [name for field, name in zip(cerba_fields,
+                           ['CERBA_TOKEN_URL', 'CERBA_CLIENT_ID', 'CERBA_CLIENT_SECRET', 'CERBA_BASE_URL'])
+                           if not field]
+
+            if missing_cerba:
+                raise ValueError(f"Missing required Cerba API configuration: {missing_cerba}")
+        else:
+            # No Cerba credentials provided - using local data service
+            import os
+            logger = __import__('loguru').logger
+            logger.info("🔧 Cerba API credentials not provided - using local data service")
+
         return True
 
 

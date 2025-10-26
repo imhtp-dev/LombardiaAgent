@@ -44,8 +44,8 @@ class Settings:
             "profanity_filter": False,
             "numerals": True,
             # Nova-3 uses keyterms instead of keywords for better recognition
-            "keyterms": [
-                "Maschio", "femmina"
+            "keyterm": [
+                "Maschio", "femmina", "cerba healthcare"
             ]
         }
 
