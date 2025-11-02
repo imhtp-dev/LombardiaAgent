@@ -1,31 +1,38 @@
 services:
   pipecat-agent:
     image: rudyimhtpdev/voicebooking_piemo1:latest
+    # NO container_name - allows scaling with: docker-compose up --scale pipecat-agent=10
     ports:
-      - "8000:8000"
+      - "8000-8020:8000"  # Port range for up to 20 instances
     environment:
       - PORT=8000
-
+      - HOST=0.0.0.0
     env_file:
       - .env
     restart: unless-stopped
     deploy:
+      mode: replicated
+      replicas: 1  # Scale with: docker-compose up --scale pipecat-agent=10
       resources:
         limits:
-          memory: 4G
-          cpus: '2.0'
+          memory: 1500M  # Reduced from 4G (each container needs ~1GB)
+          cpus: '1.0'    # 1 CPU per container
         reservations:
-          memory: 2G
-          cpus: '1.0'
+          memory: 800M   # Minimum 800MB per container
+          cpus: '0.5'    # Minimum 0.5 CPU
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
+      interval: 15s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 10s
     volumes:
       - ./logs:/app/logs
-      - /tmp:/tmp
+      - ./recordings:/app/recordings
     ulimits:
       nofile:
         soft: 65536
