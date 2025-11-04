@@ -1,0 +1,118 @@
+name: Build and Deploy to Azure
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      scale_instances:
+        description: 'Number of containers to run (1-8 for 8GB RAM)'
+        required: false
+        default: '5'
+
+env:
+  REGISTRY: rudyimhtpdev
+  IMAGE_NAME: voicebooking_piemo1
+  AZURE_VM_HOST: 98.66.139.255
+  AZURE_VM_USER: azureuser
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate build metadata
+        id: meta
+        run: |
+          echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+          echo "git_hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "version=v$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      - name: Deploy to Azure VM
+        if: github.ref == 'refs/heads/main'
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.AZURE_VM_HOST }}
+          username: ${{ env.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_SSH_KEY }}
+          script: |
+            cd /home/azureuser/app
+            
+            # Pull latest image
+            echo "Pulling latest image..."
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            
+            # Get current running containers count
+            CURRENT_SCALE=$(docker ps --filter "name=pipecat-agent" -q | wc -l)
+            echo "Current scale: $CURRENT_SCALE containers"
+            
+            # Use workflow input or default to current scale (min 5)
+            SCALE_COUNT=${{ github.event.inputs.scale_instances || '5' }}
+            if [ $CURRENT_SCALE -gt $SCALE_COUNT ]; then
+              SCALE_COUNT=$CURRENT_SCALE
+            fi
+            echo "Deploying with $SCALE_COUNT containers..."
+            
+            # Graceful shutdown of old containers
+            echo "Stopping old containers..."
+            docker-compose down --remove-orphans
+            
+            # Start new containers with scaling
+            echo "Starting new containers (scale: $SCALE_COUNT)..."
+            docker-compose up -d --scale pipecat-agent=$SCALE_COUNT
+            
+            # Cleanup old images
+            echo "Cleaning up old images..."
+            docker image prune -f
+            
+            # Verify deployment
+            echo "Verifying deployment..."
+            docker-compose ps
+            
+            # Check health endpoint
+            sleep 5
+            curl -f http://localhost:8000/health || echo "Health check failed!"
+            
+            # Show logs
+            echo "Recent logs:"
+            docker-compose logs --tail=20 pipecat-agent
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Time**: ${{ job.steps.build-and-push.conclusion }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed to**: ${{ env.AZURE_VM_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Scale**: ${{ github.event.inputs.scale_instances || 'Default (5 containers)' }}" >> $GITHUB_STEP_SUMMARY
