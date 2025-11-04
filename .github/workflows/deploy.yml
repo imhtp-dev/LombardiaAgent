@@ -66,8 +66,12 @@ jobs:
           username: ${{ env.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_SSH_KEY }}
           script: |
-            cd /home/azureuser/app
-            
+            cd /home/azureuser/voilavoicebooking
+
+            # Login to Docker Hub (in case credentials expired)
+            echo "Logging in to Docker Hub..."
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
             # Pull latest image
             echo "Pulling latest image..."
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
