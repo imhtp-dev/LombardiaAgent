@@ -113,6 +113,53 @@ async def initialize_flow_manager(flow_manager: FlowManager, start_node: str = "
 
         # Initialize with date collection node - user will be asked for preferred date/time
         await flow_manager.initialize(create_collect_datetime_node())
+    elif start_node == "booking":
+        # Start at booking flow - with pre-filled test data for faster testing
+        from flows.nodes.booking import create_collect_datetime_node
+        from models.requests import HealthService, HealthCenter
+
+        # Pre-populate state with test service and center data
+        service = HealthService(
+            uuid="9a93d65f-396a-45e4-9284-94481bdd2b51",
+            name="RX Caviglia Destra",
+            code="RRAD0019",
+            synonyms=["Esame Radiografico Caviglia Destra", "Esame Radiografico Caviglia dx", "Lastra Caviglia Destra", "Radiografia Caviglia Destra", "Radiografia Caviglia dx", "Radiografia della Caviglia Destra", "Raggi Caviglia Destra", "Raggi Caviglia dx", "Raggi x Caviglia Destra", "Raggi x Caviglia dx", "RX Caviglia dx", "RX della Caviglia Destra"]
+        )
+
+        flow_manager.state.update({
+            # Service selection data - booking logic expects PLURAL
+            "selected_service": service,
+            "selected_services": [service],
+            # Center selection data
+            "selected_center": HealthCenter(
+                uuid="6cff89d8-1f40-4eb8-bed7-f36e94a3355c",
+                name="Rozzano Viale Toscana 35/37 - Delta Medica",
+                address="Viale Toscana 35/37",
+                city="Rozzano",
+                district="Milano",
+                phone="+39 02 1234567",
+                region="Lombardia"
+            ),
+            # Cerba membership
+            "is_cerba_member": False,
+            # Patient data will be populated from --caller-phone and --patient-dob if provided
+            "current_service_index": 0
+        })
+
+        print("🧪 BOOKING TEST MODE")
+        print("=" * 50)
+        print("📋 Pre-populated test data:")
+        print(f"   Service: {service.name}")
+        print(f"   Center: {flow_manager.state['selected_center'].name}")
+        if flow_manager.state.get("caller_phone_from_talkdesk"):
+            print(f"   📞 Caller phone: {flow_manager.state.get('caller_phone_from_talkdesk')}")
+        if flow_manager.state.get("patient_dob"):
+            print(f"   📅 Patient DOB: {flow_manager.state.get('patient_dob')}")
+        print("   📅 Starting from: Date/time selection")
+        print("=" * 50)
+
+        # Initialize with date collection node - user will be asked for preferred date/time
+        await flow_manager.initialize(create_collect_datetime_node())
     else:
         # Default to greeting node
         await flow_manager.initialize(create_greeting_node())

@@ -89,43 +89,23 @@ async def start_email_collection_with_stt_switch(args: FlowArgs, flow_manager: F
     }, create_collect_email_node()
 
 
-async def collect_name_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Collect patient name and transition to surname collection"""
-    name = args.get("name", "").strip()
+async def collect_full_name_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """Collect patient full name (name + surname combined) and transition to phone collection"""
+    full_name = args.get("full_name", "").strip()
 
-    if not name or len(name) < 1:
-        return {"success": False, "message": "Please provide your name"}, None
+    if not full_name or len(full_name) < 2:
+        return {"success": False, "message": "Please provide your full name"}, None
 
-    # Store name in state
-    flow_manager.state["patient_name"] = name
+    # Store full name as-is (NO PARSING)
+    flow_manager.state["patient_full_name"] = full_name
 
-    logger.info(f"👤 Patient name collected: {name}")
-
-    from flows.nodes.patient_details import create_collect_surname_node
-    return {
-        "success": True,
-        "name": name,
-        "message": "Name collected successfully"
-    }, create_collect_surname_node()
-
-
-async def collect_surname_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Collect patient surname and transition to phone collection"""
-    surname = args.get("surname", "").strip()
-
-    if not surname or len(surname) < 1:
-        return {"success": False, "message": "Please provide your surname"}, None
-
-    # Store surname in state
-    flow_manager.state["patient_surname"] = surname
-
-    logger.info(f"👤 Patient surname collected: {surname}")
+    logger.info(f"👤 Patient full name collected: {full_name}")
 
     from flows.nodes.patient_details import create_collect_phone_node
     return {
         "success": True,
-        "surname": surname,
-        "message": "Surname collected successfully"
+        "full_name": full_name,
+        "message": "Full name collected successfully"
     }, create_collect_phone_node()
 
 
@@ -271,14 +251,13 @@ async def confirm_email_and_transition(args: FlowArgs, flow_manager: FlowManager
         # from utils.stt_switcher import switch_to_default_transcription
         # await switch_to_default_transcription()
 
-        # Generate fiscal code from collected data
-        await generate_fiscal_code_from_state(flow_manager)
+        # FISCAL CODE GENERATION REMOVED - Will be hardcoded for new patients
 
         # Go directly to reminder authorization (skip bulk verification)
         from flows.nodes.patient_details import create_collect_reminder_authorization_node
         return {
             "success": True,
-            "message": "Email confirmed, fiscal code generated, proceeding to authorization questions"
+            "message": "Email confirmed, proceeding to authorization questions"
         }, create_collect_reminder_authorization_node()
 
     elif action == "change":
@@ -295,51 +274,8 @@ async def confirm_email_and_transition(args: FlowArgs, flow_manager: FlowManager
         return {"success": False, "message": "Please confirm if the email is correct or if you want to change it"}, None
 
 
-async def generate_fiscal_code_from_state(flow_manager: FlowManager) -> None:
-    """Generate fiscal code from collected patient data in state"""
-    try:
-        # CONDITIONAL BYPASS: Check if fiscal code already exists from database lookup
-        existing_fiscal_code = flow_manager.state.get("generated_fiscal_code", "")
-        if existing_fiscal_code and flow_manager.state.get("patient_found_in_db", False):
-            logger.info(f"⏭️ Skipping fiscal code generation - already exists from database: {existing_fiscal_code}")
-            return
-
-        # Extract patient data from state - check both individual keys and patient_data dict
-        patient_data_dict = flow_manager.state.get("patient_data", {})
-
-        patient_data = {
-            'name': flow_manager.state.get("patient_name", ""),
-            'surname': flow_manager.state.get("patient_surname", ""),
-            'birth_date': flow_manager.state.get("patient_dob", patient_data_dict.get("date_of_birth", "")),
-            'gender': flow_manager.state.get("patient_gender", patient_data_dict.get("gender", "")),
-            'birth_city': flow_manager.state.get("patient_birth_city", patient_data_dict.get("birth_city", ""))
-        }
-
-        logger.info(f"🔧 Generating fiscal code from state data: {patient_data}")
-
-        # Generate fiscal code
-        result = fiscal_code_generator.generate_fiscal_code(patient_data)
-
-        if result["success"]:
-            fiscal_code = result["fiscal_code"]
-            flow_manager.state["generated_fiscal_code"] = fiscal_code
-            flow_manager.state["fiscal_code_generation_data"] = result
-
-            logger.success(f"✅ Fiscal code generated and stored: {fiscal_code}")
-            logger.info(f"📍 Matched city: {result.get('matched_city')} "
-                       f"(similarity: {result.get('similarity_score')}%)")
-        else:
-            error_msg = result.get("error", "Unknown error")
-            logger.error(f"❌ Fiscal code generation failed: {error_msg}")
-
-            # Store error for potential debugging
-            flow_manager.state["fiscal_code_error"] = error_msg
-            if "suggestions" in result:
-                flow_manager.state["city_suggestions"] = result["suggestions"]
-
-    except Exception as e:
-        logger.error(f"❌ Error in fiscal code generation: {e}")
-        flow_manager.state["fiscal_code_error"] = str(e)
+# FISCAL CODE GENERATION FUNCTION REMOVED
+# Fiscal code is now hardcoded for new patients in the booking creation logic
 
 
 
@@ -396,13 +332,13 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
     details_confirmed = args.get("details_confirmed", False)
 
     if not details_confirmed:
-        # If details not confirmed, restart name collection
+        # If details not confirmed, restart full name collection
         logger.info("🔄 Patient details not confirmed, restarting collection")
-        from flows.nodes.patient_details import create_collect_name_node
+        from flows.nodes.patient_details import create_collect_full_name_node
         return {
             "success": False,
             "message": "Let's collect your details again"
-        }, create_collect_name_node()
+        }, create_collect_full_name_node()
 
     logger.info("✅ Patient details confirmed, proceeding to final booking")
 
@@ -452,14 +388,28 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
             logger.error("❌ DEBUG: No selected_slot found in state - this is a problem!")
 
     # Get patient data with extensive logging
-    patient_name = flow_manager.state.get("patient_name", "")
-    patient_surname = flow_manager.state.get("patient_surname", "")
+    full_name = flow_manager.state.get("patient_full_name", "")
     patient_phone = flow_manager.state.get("patient_phone", "")
     patient_email = flow_manager.state.get("patient_email", "")
-    patient_fiscal_code = flow_manager.state.get("generated_fiscal_code", "")
 
-    logger.info(f"🔍 DEBUG: patient_name = '{patient_name}'")
-    logger.info(f"🔍 DEBUG: patient_surname = '{patient_surname}'")
+    # FISCAL CODE LOGIC: Use DB fiscal code if patient exists, otherwise hardcode
+    patient_found_in_db = flow_manager.state.get("patient_found_in_db", False)
+    if patient_found_in_db:
+        # Use fiscal code from database
+        patient_fiscal_code = flow_manager.state.get("generated_fiscal_code", "NWTSCI80A01F205A")
+        logger.info(f"✅ Using fiscal code from database: {patient_fiscal_code}")
+    else:
+        # New patient - use hardcoded fiscal code
+        patient_fiscal_code = "NWTSCI80A01F205A"
+        logger.info(f"🔧 Using hardcoded fiscal code for new patient: {patient_fiscal_code}")
+
+    # TEMPORARY: Send full_name to BOTH name and surname API fields
+    patient_name = full_name
+    patient_surname = full_name
+
+    logger.info(f"🔍 DEBUG: patient_full_name = '{full_name}'")
+    logger.info(f"🔍 DEBUG: patient_name (for API) = '{patient_name}'")
+    logger.info(f"🔍 DEBUG: patient_surname (for API) = '{patient_surname}'")
     logger.info(f"🔍 DEBUG: patient_phone = '{patient_phone}'")
     logger.info(f"🔍 DEBUG: patient_email = '{patient_email}'")
     logger.info(f"🔍 DEBUG: patient_fiscal_code = '{patient_fiscal_code}'")

@@ -113,7 +113,7 @@ class Settings:
     @property
     def language_config(self) -> str:
         """Global language instruction for prompts"""
-        return "You need to speak Italian"
+        return "You need to speak Italian."
     
     def _validate_required_keys(self) -> None:
         """Validate that all required API keys are present"""

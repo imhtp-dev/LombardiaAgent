@@ -2,10 +2,9 @@
 Patient details collection nodes for booking finalization
 """
 
-from pipecat_flows import NodeConfig, FlowsFunctionSchema
+from pipecat_flows import NodeConfig, FlowsFunctionSchema, ContextStrategyConfig, ContextStrategy
 from flows.handlers.patient_detail_handlers import (
-    collect_name_and_transition,
-    collect_surname_and_transition,
+    collect_full_name_and_transition,
     collect_phone_and_transition,
     confirm_phone_and_transition,
     collect_email_and_transition,
@@ -17,61 +16,42 @@ from flows.handlers.patient_detail_handlers import (
 from config.settings import settings
 
 
-def create_collect_name_node() -> NodeConfig:
-    """Create name collection node"""
+def create_collect_full_name_node() -> NodeConfig:
+    """
+    Create full name collection node (name + surname combined)
+
+    IMPORTANT: Context is reset at this node to clear heavy slot data from previous booking search.
+    This prevents context window bloat while keeping only essential booking summary.
+    """
     return NodeConfig(
-        name="collect_name",
+        name="collect_full_name",
         role_messages=[{
             "role": "system",
-            "content": f"Collect the patient's name to finalize the booking. {settings.language_config}"
+            "content": f"Collect the patient's complete full name (first name and surname together). {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
-            "content": "What is your name?"
+            "content": "What is your full name?"
         }],
         functions=[
             FlowsFunctionSchema(
-                name="collect_name",
-                handler=collect_name_and_transition,
-                description="Collect the patient's name",
+                name="collect_full_name",
+                handler=collect_full_name_and_transition,
+                description="Collect the patient's complete full name",
                 properties={
-                    "name": {
+                    "full_name": {
                         "type": "string",
-                        "description": "Patient's name"
+                        "description": "Patient's complete full name (first name and surname)"
                     }
                 },
-                required=["name"]
+                required=["full_name"]
             )
-        ]
-    )
-
-
-def create_collect_surname_node() -> NodeConfig:
-    """Create surname collection node"""
-    return NodeConfig(
-        name="collect_surname",
-        role_messages=[{
-            "role": "system",
-            "content": f"Collect the patient's surname to finalize the booking. {settings.language_config}"
-        }],
-        task_messages=[{
-            "role": "system",
-            "content": "What is your surname?"
-        }],
-        functions=[
-            FlowsFunctionSchema(
-                name="collect_surname",
-                handler=collect_surname_and_transition,
-                description="Collect the patient's surname",
-                properties={
-                    "surname": {
-                        "type": "string",
-                        "description": "Patient's surname"
-                    }
-                },
-                required=["surname"]
-            )
-        ]
+        ],
+        # Reset context to clear slot data after booking selection
+        context_strategy=ContextStrategyConfig(
+            strategy=ContextStrategy.RESET_WITH_SUMMARY,
+            summary_prompt="Summarize ONLY the following information: patient name (if mentioned), selected healthcare service, and the booked appointment date and time. DO NOT include any slot details, UUIDs, or availability data."
+        )
     )
 
 

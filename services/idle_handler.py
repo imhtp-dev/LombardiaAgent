@@ -104,12 +104,12 @@ async def healthcare_idle_callback(idle_processor: UserIdleProcessor, retry_coun
         return False  # Stop monitoring
 
 
-def create_user_idle_processor(timeout_seconds: float = 30.0) -> UserIdleProcessor:
+def create_user_idle_processor(timeout_seconds: float = 50.0) -> UserIdleProcessor:
     """
     Create a UserIdleProcessor for healthcare booking agent
 
     Args:
-        timeout_seconds: Seconds to wait before considering user idle (default: 30 seconds)
+        timeout_seconds: Seconds to wait before considering user idle (default: 50 seconds)
 
     Returns:
         UserIdleProcessor: Configured processor
@@ -133,7 +133,7 @@ async def simple_idle_callback(idle_processor: UserIdleProcessor) -> None:
     await idle_processor.push_frame(TTSSpeakFrame(reminder))
 
 
-def create_simple_idle_processor(timeout_seconds: float = 30.0) -> UserIdleProcessor:
+def create_simple_idle_processor(timeout_seconds: float = 50.0) -> UserIdleProcessor:
     """Create simple idle processor with single reminder"""
 
     return UserIdleProcessor(

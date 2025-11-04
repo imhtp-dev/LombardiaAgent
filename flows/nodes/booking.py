@@ -23,7 +23,9 @@ from flows.handlers.booking_handlers import (
     select_slot_and_book,
     create_booking_and_transition,
     confirm_booking_summary_and_proceed,
-    update_date_and_search_slots
+    update_date_and_search_slots,
+    show_more_same_day_slots_handler,
+    search_different_date_handler
 )
 from config.settings import settings
 
@@ -295,6 +297,20 @@ You can understand natural language date expressions and calculate the correct d
 - "next month" → calculate approximately 30 days from today
 - "next Thursday" → calculate the next Thursday (if today is Thursday, it means the following Thursday)
 
+🚀 SPECIAL: "FIRST AVAILABLE" / "MOST RECENT" REQUESTS:
+If the patient says ANY of these phrases:
+- "most recent availability" / "disponibilità più recente"
+- "first available" / "prima disponibilità"
+- "earliest possible" / "il prima possibile"
+- "soonest slot" / "prima data libera"
+- "any time, just the earliest" / "qualsiasi ora, solo la prima"
+- "give me the first one" / "dammi il primo"
+
+Then respond with:
+- preferred_date: "{today_date}" (TODAY'S DATE)
+- time_preference: "any"
+- first_available_mode: true
+
 IMPORTANT:
 - If the user says 'morning' or mentions morning time, set time_preference to "morning" (8:00-12:00)
 - If they say 'afternoon' or mention afternoon time, set time_preference to "afternoon" (12:00-19:00)
@@ -326,6 +342,10 @@ Always use 24-hour time format. Be flexible with user input formats. Speak natur
                     "time_preference": {
                         "type": "string",
                         "description": "Time preference: 'morning' (8:00-12:00), 'afternoon' (12:00-19:00), 'specific' (exact time), or 'any' (no preference)"
+                    },
+                    "first_available_mode": {
+                        "type": "boolean",
+                        "description": "Set to true if patient wants the earliest/first available/most recent slot regardless of specific date/time"
                     }
                 },
                 required=["preferred_date"]
@@ -399,7 +419,7 @@ def create_slot_search_node() -> NodeConfig:
     )
 
 
-def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cerba_member: bool = False, user_preferred_date: str = None, time_preference: str = "any time") -> NodeConfig:
+def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cerba_member: bool = False, user_preferred_date: str = None, time_preference: str = "any time", first_available_mode: bool = False) -> NodeConfig:
     """Create slot selection node with progressive filtering and minimal LLM data"""
 
     from loguru import logger
@@ -411,6 +431,7 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
     logger.info(f"🔧 SMART FILTERING: Processing {len(slots)} raw slots for {service.name}")
     logger.info(f"🔧 User preferred date: {user_preferred_date}")
     logger.info(f"🔧 Time preference: {time_preference}")
+    logger.info(f"🔧 First available mode: {first_available_mode}")
 
     for slot in slots:
         # Convert UTC slot times to Italian local time for user display
@@ -459,21 +480,139 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
 
     logger.info(f"🔧 PARSED: Found slots for {len(slots_by_date)} different dates: {list(slots_by_date.keys())}")
 
-    # PROGRESSIVE FILTERING LOGIC
-    def filter_slots_by_time_preference(day_slots, preference):
-        """Filter slots by morning (8-12) or afternoon (12-19)"""
-        if preference == "morning":
-            return [slot for slot in day_slots if 8 <= slot['start_dt'].hour < 12]
-        elif preference == "afternoon":
-            return [slot for slot in day_slots if 12 <= slot['start_dt'].hour < 19]
+    # FIRST AVAILABLE MODE HANDLING (SEND ALL SLOTS FROM EARLIEST DATE)
+    if first_available_mode:
+        logger.info("🎯 FIRST AVAILABLE MODE: Sending ALL slots from earliest available date (TOMORROW)")
+
+        # Get tomorrow's date in Italian timezone (API already searched from tomorrow)
+        italian_tz = ZoneInfo("Europe/Rome")
+        today_dt = datetime.now(italian_tz)
+        tomorrow_dt = today_dt + timedelta(days=1)
+        tomorrow_date_key = tomorrow_dt.strftime('%Y-%m-%d')
+
+        logger.info(f"📅 Tomorrow's date: {tomorrow_date_key}")
+
+        # Collect ALL slots across all dates
+        all_slots_sorted = []
+        for date_key in sorted(slots_by_date.keys()):
+            all_slots_sorted.extend(slots_by_date[date_key])
+
+        # Sort by datetime (earliest first)
+        all_slots_sorted.sort(key=lambda s: s['start_dt'])
+
+        # Filter to get TOMORROW's slots (or earliest date if tomorrow has no slots)
+        tomorrow_slots = [s for s in all_slots_sorted if s['date_key'] == tomorrow_date_key]
+
+        if tomorrow_slots:
+            # Send ALL slots from TOMORROW (no limit!)
+            selected_slots_for_llm = tomorrow_slots
+
+            # Get the earliest slot for highlighting
+            earliest_slot = tomorrow_slots[0]
+            formatted_date = earliest_slot['formatted_date']
+            earliest_time = earliest_slot['start_time_24h']
+
+            # Check if there are morning and afternoon slots
+            morning_slots = [s for s in tomorrow_slots if 8 <= s['start_dt'].hour < 12]
+            afternoon_slots = [s for s in tomorrow_slots if 12 <= s['start_dt'].hour < 19]
+
+            # Count other dates available
+            unique_dates = sorted(set(s['date_key'] for s in all_slots_sorted))
+            other_dates = [d for d in unique_dates if d != tomorrow_date_key]
+            other_dates_count = len(other_dates)
+
+            # Build task content with LLM instructions
+            task_content = f"""I found {len(tomorrow_slots)} available appointments for TOMORROW ({formatted_date}).
+
+🕐 The most recent (earliest) appointment available is at {earliest_time}.
+
+IMPORTANT INSTRUCTIONS:
+1. Present only the FIRST 4-6 time slots to the user initially
+2. Mention the earliest time ({earliest_time}) as the most recent available
+3. After showing the first 4-6 slots, tell the user:"""
+
+            if len(tomorrow_slots) > 6:
+                if len(morning_slots) > 0 and len(afternoon_slots) > 0:
+                    task_content += f"""
+   - "We have a total of {len(tomorrow_slots)} slots available tomorrow"
+   - "We have {len(morning_slots)} slots in the morning and {len(afternoon_slots)} slots in the afternoon"
+   - Ask if they want to see more options"""
+                elif len(morning_slots) > 6:
+                    task_content += f"""
+   - "We have more morning slots available (total {len(morning_slots)} morning slots)"
+   - Ask if they want to see the additional morning times"""
+                elif len(afternoon_slots) > 6:
+                    task_content += f"""
+   - "We have more afternoon slots available (total {len(afternoon_slots)} afternoon slots)"
+   - Ask if they want to see the additional afternoon times"""
+
+            if other_dates_count > 0:
+                task_content += f"""
+4. Mention that appointments are also available on {other_dates_count} other date(s) if they prefer a different day
+
+Ask the user if any of the shown times work for them, or if they'd like to see more options."""
+
+            logger.info(f"✅ FIRST AVAILABLE: Sending ALL {len(tomorrow_slots)} slots from TOMORROW ({tomorrow_date_key})")
+            logger.info(f"🕐 Earliest time tomorrow: {earliest_time}")
+            logger.info(f"📊 Morning slots: {len(morning_slots)}, Afternoon slots: {len(afternoon_slots)}")
+            logger.info(f"📊 Other dates available: {other_dates_count}")
+
+        elif all_slots_sorted:
+            # No slots today, show earliest available date with ALL its slots
+            earliest_slot = all_slots_sorted[0]
+            earliest_date_key = earliest_slot['date_key']
+            earliest_date_slots = [s for s in all_slots_sorted if s['date_key'] == earliest_date_key]
+
+            selected_slots_for_llm = earliest_date_slots
+            formatted_date = earliest_slot['formatted_date']
+            earliest_time = earliest_slot['start_time_24h']
+
+            # Check morning/afternoon distribution
+            morning_slots = [s for s in earliest_date_slots if 8 <= s['start_dt'].hour < 12]
+            afternoon_slots = [s for s in earliest_date_slots if 12 <= s['start_dt'].hour < 19]
+
+            task_content = f"""No appointments available today. The earliest available date is {formatted_date} with {len(earliest_date_slots)} appointment slots.
+
+🕐 The most recent appointment available is at {earliest_time}.
+
+IMPORTANT INSTRUCTIONS:
+1. Present only the FIRST 4-6 time slots to the user initially
+2. After showing the first 4-6 slots, tell the user:"""
+
+            if len(earliest_date_slots) > 6:
+                if len(morning_slots) > 0 and len(afternoon_slots) > 0:
+                    task_content += f"""
+   - "We have a total of {len(earliest_date_slots)} slots on {formatted_date}"
+   - "We have {len(morning_slots)} morning slots and {len(afternoon_slots)} afternoon slots"
+   - Ask if they want to see more options"""
+
+            task_content += """
+
+Ask the user if any of these times work for them, or if they'd like to see more options or search for a different date."""
+
+            logger.info(f"⚠️ FIRST AVAILABLE: No slots today, sending ALL {len(earliest_date_slots)} slots from earliest date ({earliest_date_key})")
+            logger.info(f"🕐 Earliest time on {earliest_date_key}: {earliest_time}")
         else:
-            return day_slots  # No time preference
+            task_content = "I'm sorry, but there are currently no available appointments. Please try a different date or service."
+            selected_slots_for_llm = []
+            logger.error("❌ NO SLOTS AVAILABLE in first available mode")
 
-    # Step 1: Check if user's preferred date has slots
-    selected_slots_for_llm = []
-    task_content = ""
+    # PROGRESSIVE FILTERING LOGIC
+    else:
+        def filter_slots_by_time_preference(day_slots, preference):
+            """Filter slots by morning (8-12) or afternoon (12-19)"""
+            if preference == "morning":
+                return [slot for slot in day_slots if 8 <= slot['start_dt'].hour < 12]
+            elif preference == "afternoon":
+                return [slot for slot in day_slots if 12 <= slot['start_dt'].hour < 19]
+            else:
+                return day_slots  # No time preference
 
-    if user_preferred_date and user_preferred_date in slots_by_date:
+        # Step 1: Check if user's preferred date has slots
+        selected_slots_for_llm = []
+        task_content = ""
+
+    if not first_available_mode and user_preferred_date and user_preferred_date in slots_by_date:
         logger.info(f"✅ SMART FILTERING: User's preferred date {user_preferred_date} has slots!")
         day_slots = slots_by_date[user_preferred_date]
 
@@ -482,12 +621,30 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
             filtered_slots = filter_slots_by_time_preference(day_slots, time_preference)
 
             if filtered_slots:
-                # User's date + time preference has slots
-                selected_slots_for_llm = filtered_slots[:8]  # Max 8 slots
+                # User's date + time preference has slots - SEND ALL (no limit)
+                selected_slots_for_llm = filtered_slots
                 time_period = "morning" if time_preference == "morning" else "afternoon"
                 formatted_date = day_slots[0]['formatted_date']
-                task_content = f"For {formatted_date} in the {time_period}, here are available time slots for your appointment:"
-                logger.info(f"✅ PERFECT MATCH: {len(selected_slots_for_llm)} {time_period} slots on {user_preferred_date}")
+
+                # Build task content with LLM instructions for progressive display
+                task_content = f"""For {formatted_date} in the {time_period}, I found {len(filtered_slots)} available time slots.
+
+IMPORTANT INSTRUCTIONS:
+1. Present only the FIRST 4-6 time slots to the user initially
+2. After showing the first 4-6 slots, tell the user:"""
+
+                if len(filtered_slots) > 6:
+                    task_content += f"""
+   - "We have a total of {len(filtered_slots)} {time_period} slots available on {formatted_date}"
+   - Ask if they want to see the additional {time_period} times
+
+Ask the user if any of the shown times work for them, or if they'd like to see more options."""
+                else:
+                    task_content += """
+
+Ask the user which time works best for them."""
+
+                logger.info(f"✅ PERFECT MATCH: Sending ALL {len(selected_slots_for_llm)} {time_period} slots on {user_preferred_date}")
             else:
                 # No slots for preferred time, offer alternatives
                 other_time_slots = filter_slots_by_time_preference(day_slots, "afternoon" if time_preference == "morning" else "morning")
@@ -495,9 +652,27 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
                 formatted_date = day_slots[0]['formatted_date']
 
                 if other_time_slots:
-                    selected_slots_for_llm = other_time_slots[:8]
-                    task_content = f"Sorry, no {time_preference} slots available on {formatted_date}. However, we have {alternative_time} appointments available:"
-                    logger.info(f"⚠️ FALLBACK: No {time_preference} slots, showing {len(selected_slots_for_llm)} {alternative_time} slots")
+                    # SEND ALL alternative time slots (no limit)
+                    selected_slots_for_llm = other_time_slots
+
+                    task_content = f"""Sorry, no {time_preference} slots available on {formatted_date}. However, we have {len(other_time_slots)} {alternative_time} appointments available.
+
+IMPORTANT INSTRUCTIONS:
+1. Present only the FIRST 4-6 time slots to the user initially
+2. After showing the first 4-6 slots, tell the user:"""
+
+                    if len(other_time_slots) > 6:
+                        task_content += f"""
+   - "We have a total of {len(other_time_slots)} {alternative_time} slots available"
+   - Ask if they want to see the additional {alternative_time} times
+
+Ask the user if any of the shown times work for them, or if they'd like to see more options."""
+                    else:
+                        task_content += """
+
+Ask the user which time works best for them."""
+
+                    logger.info(f"⚠️ FALLBACK: No {time_preference} slots, sending ALL {len(selected_slots_for_llm)} {alternative_time} slots")
                 else:
                     # No slots for this date at all in any time, show other dates
                     available_dates = [f"{slots_by_date[date][0]['formatted_date']} ({len(slots_by_date[date])} slots)"
@@ -506,13 +681,42 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
                     task_content = f"Sorry, no appointments available on {formatted_date}. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer?"
                     logger.info(f"❌ NO SLOTS: User's preferred date has no slots in any time period")
         else:
-            # No time preference, show all slots for the day
-            selected_slots_for_llm = day_slots[:8]  # Max 8 slots
+            # No time preference, show all slots for the day - SEND ALL (no limit)
+            selected_slots_for_llm = day_slots
             formatted_date = day_slots[0]['formatted_date']
-            task_content = f"For {formatted_date}, here are available time slots for your appointment:"
-            logger.info(f"✅ WHOLE DAY: {len(selected_slots_for_llm)} slots for {user_preferred_date}")
 
-    else:
+            # Check morning/afternoon distribution for better messaging
+            morning_slots = [s for s in day_slots if 8 <= s['start_dt'].hour < 12]
+            afternoon_slots = [s for s in day_slots if 12 <= s['start_dt'].hour < 19]
+
+            task_content = f"""For {formatted_date}, I found {len(day_slots)} available time slots.
+
+IMPORTANT INSTRUCTIONS:
+1. Present only the FIRST 4-6 time slots to the user initially
+2. After showing the first 4-6 slots, tell the user:"""
+
+            if len(day_slots) > 6:
+                if len(morning_slots) > 0 and len(afternoon_slots) > 0:
+                    task_content += f"""
+   - "We have a total of {len(day_slots)} slots on {formatted_date}"
+   - "We have {len(morning_slots)} morning slots and {len(afternoon_slots)} afternoon slots"
+   - Ask if they want to see more options or prefer a specific time period (morning/afternoon)"""
+                else:
+                    task_content += f"""
+   - "We have a total of {len(day_slots)} slots available on {formatted_date}"
+   - Ask if they want to see the additional time options"""
+
+                task_content += """
+
+Ask the user if any of the shown times work for them, or if they'd like to see more options."""
+            else:
+                task_content += """
+
+Ask the user which time works best for them."""
+
+            logger.info(f"✅ WHOLE DAY: Sending ALL {len(selected_slots_for_llm)} slots for {user_preferred_date}")
+
+    elif not first_available_mode:
         # User's preferred date not available, show available dates
         available_dates = []
         for date_key in sorted(slots_by_date.keys()):
@@ -578,11 +782,34 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
 {slot_context.get('slot_count', 'Unknown')} carefully selected slots. When presenting times:
 - ALWAYS use 24-hour time format (e.g., 13:40, 15:30) - NEVER convert to 12-hour format
 - CRITICAL: ONLY present times from this list: {slot_context.get('available_times', [])}
-- IMPORTANT: When speaking times aloud, say them in words:
-  * Italian: "nove e zero" for 9:00, "nove e quindici" for 9:15, "tredici e quaranta" for 13:40
-  * English: "nine o'clock" for 9:00, "nine fifteen" for 9:15, "thirteen forty" for 13:40
 
-- IMPORTANT: When calling function, use digits: 9:00, 9:15, 13:40, etc.
+📅 DATE AND TIME FORMATTING RULES (CRITICAL - MUST FOLLOW):
+- ALWAYS remove leading zeros from BOTH hours AND minutes
+- Examples of CORRECT formatting:
+  * "07:30" → "7:30" (remove leading 0 from hour)
+  * "03:15" → "3:15" (remove leading 0 from hour)
+  * "09:45" → "9:45" (remove leading 0 from hour)
+  * "11:05" → "11:5" (remove leading 0 from minute!)
+  * "14:05" → "14:5" (remove leading 0 from minute!)
+  * "08:07" → "8:7" (remove ALL leading zeros!)
+- For times ending in :00, say "o'clock": "07:00" → "7 o'clock", "14:00" → "14 o'clock"
+- Remove leading zeros from dates: "01 November" → "1 November", "08 December" → "8 December"
+- Keep dates without leading zeros as-is: "15 November" → "15 November"
+
+EXAMPLES:
+- "08 November 2025 alle 07:00" → "8 November 2025 alle 7 o'clock"
+- "15 November 2025 alle 14:05" → "15 November 2025 alle 14:5" (remove the 0 from 05!)
+- "01 December 2025 alle 03:30" → "1 December 2025 alle 3:30"
+- "30 October 2025 alle 11:05" → "30 October 2025 alle 11:5" (remove the 0 from 05!)
+- "05 November 2025 alle 09:07" → "5 November 2025 alle 9:7" (remove ALL leading zeros!)
+
+- IMPORTANT: When speaking times aloud in Italian, say them naturally:
+  * "7:30" → "sette e trenta" (NOT "zero sette e trenta")
+  * "14:5" → "quattordici e cinque" (remove the leading zero from 05!)
+  * "11:5" → "undici e cinque" (NOT "undici e zero cinque")
+  * "9 o'clock" → "nove in punto"
+
+- IMPORTANT: When calling function, use the UUID mapping below
 - Never mention prices, UUIDs, or technical details
 - Be conversational and human
 
@@ -623,6 +850,30 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
                     }
                 },
                 required=["providing_entity_availability_uuid"]
+            ),
+            FlowsFunctionSchema(
+                name="show_more_same_day_slots",
+                handler=show_more_same_day_slots_handler,
+                description="Show additional available slots on the same day as the earliest slot (only available after first available search)",
+                properties={},
+                required=[]
+            ),
+            FlowsFunctionSchema(
+                name="search_different_date",
+                handler=search_different_date_handler,
+                description="Search for slots on a specific different date requested by the user",
+                properties={
+                    "new_date": {
+                        "type": "string",
+                        "description": "The new date to search for in YYYY-MM-DD format (e.g., '2025-11-08')"
+                    },
+                    "time_preference": {
+                        "type": "string",
+                        "description": "Time preference: 'morning', 'afternoon', or 'any time'",
+                        "default": "any time"
+                    }
+                },
+                required=["new_date"]
             ),
             FlowsFunctionSchema(
                 name="update_date_preference",
@@ -806,7 +1057,17 @@ Would you like to proceed with this booking? If yes, I'll just need to collect s
         name="booking_summary_confirmation",
         role_messages=[{
             "role": "system",
-            "content": f"CRITICAL: You must present EXACTLY the booking summary provided below. DO NOT change, modify, or hallucinate any times, dates, services, or prices. Use ONLY the exact information from the summary content. DO NOT mention any times other than what is explicitly written in the summary. This is just a summary - the actual booking will be created after collecting personal details. Ask for confirmation before proceeding to personal information collection. If the patient wants to change the time, use action='change' to show other available times for the same service and date. {settings.language_config}"
+            "content": f"""CRITICAL: You must present EXACTLY the booking summary provided below. DO NOT change, modify, or hallucinate any times, dates, services, or prices. Use ONLY the exact information from the summary content.
+
+📅 DATE AND TIME FORMATTING RULES (MUST FOLLOW):
+- ALWAYS remove leading zeros from BOTH hours AND minutes
+- "07:30" → "7:30", "03:15" → "3:15", "09:45" → "9:45"
+- "11:05" → "11:5" (remove the 0 from minutes!), "14:05" → "14:5"
+- "08:07" → "8:7" (remove ALL leading zeros!)
+- For times ending in :00, say "o'clock": "07:00" → "7 o'clock", "14:00" → "14 o'clock"
+- Remove leading zeros from dates: "01 November" → "1 November", "08 December" → "8 December"
+
+This is just a summary - the actual booking will be created after collecting personal details. Ask for confirmation before proceeding to personal information collection. If the patient wants to change the time, use action='change' to show other available times for the same service and date. {settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",

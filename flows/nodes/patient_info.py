@@ -7,7 +7,6 @@ from flows.handlers.patient_handlers import (
     collect_address_and_transition,
     collect_gender_and_transition,
     collect_dob_and_transition,
-    collect_birth_city_and_transition,
     verify_basic_info_and_transition
 )
 from config.settings import settings
@@ -100,42 +99,16 @@ def create_collect_dob_node() -> NodeConfig:
     )
 
 
-def create_collect_birth_city_node() -> NodeConfig:
-    """Create birth city collection node"""
-    return NodeConfig(
-        name="collect_birth_city",
-        role_messages=[{
-            "role": "system",
-            "content": f"Collect the patient's birth city for tax code generation. It's important to get the complete and correct city name. {settings.language_config}"
-        }],
-        task_messages=[{
-            "role": "system",
-            "content": "In which city were you born? Please tell me the complete name of your birth city."
-        }],
-        functions=[
-            FlowsFunctionSchema(
-                name="collect_birth_city",
-                handler=collect_birth_city_and_transition,
-                description="Collect the patient's birth city",
-                properties={
-                    "birth_city": {
-                        "type": "string",
-                        "description": "Patient's birth city"
-                    }
-                },
-                required=["birth_city"]
-            )
-        ]
-    )
+# BIRTH CITY NODE REMOVED - No longer needed without fiscal code generation
 
 
-def create_verify_basic_info_node(address: str, gender: str, dob: str, birth_city: str) -> NodeConfig:
-    """Create verification node for address, gender, DOB, and birth city"""
+def create_verify_basic_info_node(address: str, gender: str, dob: str) -> NodeConfig:
+    """Create verification node for address, gender, and DOB (birth city removed)"""
     gender_display = "Male" if gender.lower() == "m" else "Female" if gender.lower() == "f" else gender
 
     verification_text = f"""Verify the information I've collected:
 
-Your Address is {address}, your gender is {gender_display}, date of birth {dob} and your birth city is {birth_city}. 
+Your Address is {address}, your gender is {gender_display}, and date of birth {dob}.
 
 Is this data correct? Answer "yes" if it's correct, or tell me what needs to be changed."""
 
@@ -162,7 +135,7 @@ Is this data correct? Answer "yes" if it's correct, or tell me what needs to be 
                     },
                     "field_to_change": {
                         "type": "string",
-                        "enum": ["address", "gender", "date_of_birth", "birth_city"],
+                        "enum": ["address", "gender", "date_of_birth"],
                         "description": "Which field to change (only if action is 'change')"
                     },
                     "new_value": {
