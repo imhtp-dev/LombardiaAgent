@@ -30,12 +30,12 @@ PATIENTS_DB = [
     },
     {
         "id": "p3",
-        "phone": "+393333319326",
-        "first_name": "Rudy Son",
-        "last_name": "Krsip",
-        "dob": "1985-03-01",
-        "fiscal_code": "FC10003",
-        "email": "rudy.son@gmail.com"
+        "phone": "+393356441141",
+        "first_name": "Stefano",
+        "last_name": "Massaro",
+        "dob": "1976-07-11",
+        "fiscal_code": "MSSSFN76L11F205N",
+        "email": "stefano.massaro@cerbahealthcare.it"
     }
 ]
 
