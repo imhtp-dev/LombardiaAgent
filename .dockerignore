@@ -65,10 +65,6 @@ test.py
 extra/*.json
 recordings/*.json
 logs/*.json
-# Allow these critical JSON files:
-# - data/all_services.json (local service data)
-# - city_codes.json (fiscal code generation)
-# - requirements*.txt (not json but good to note)
 
 # Additional Python and development files
 .pytest_cache/
