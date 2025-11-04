@@ -61,11 +61,14 @@ tests/
 test_*.py
 test.py
 
-# Large data files
-*.json
-!requirements*.txt
-!data/all_services.json  # ALLOW this file - needed for local data service!
-city_codes.json
+# Large data files - be specific to avoid blocking needed files
+extra/*.json
+recordings/*.json
+logs/*.json
+# Allow these critical JSON files:
+# - data/all_services.json (local service data)
+# - city_codes.json (fiscal code generation)
+# - requirements*.txt (not json but good to note)
 
 # Additional Python and development files
 .pytest_cache/
