@@ -55,7 +55,7 @@ COPY pipeline/ ./pipeline/
 COPY services/ ./services/
 COPY utils/ ./utils/
 COPY data/ ./data/
-COPY bot.py extractCF.py city_codes.json ./
+COPY bot.py extractCF.py ./
 
 # Create non-root user and set permissions
 RUN groupadd -r pipecat && useradd -r -g pipecat pipecat && \
