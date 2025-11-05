@@ -295,8 +295,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # CREATE USER IDLE PROCESSOR FOR HANDLING TRANSCRIPTION FAILURES
         from services.idle_handler import create_user_idle_processor
-        user_idle_processor = create_user_idle_processor(timeout_seconds=30.0)
-        logger.info("🕐 UserIdleProcessor created (30s timeout - accounts for API processing delays)")
+        user_idle_processor = create_user_idle_processor(timeout_seconds=50.0)
+        logger.info("🕐 UserIdleProcessor created (50s timeout - accounts for API processing delays)")
 
         # CREATE PIPELINE WITH TRANSCRIPT PROCESSORS AND IDLE HANDLING
         pipeline = Pipeline([

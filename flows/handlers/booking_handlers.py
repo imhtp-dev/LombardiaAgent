@@ -195,22 +195,50 @@ async def check_cerba_membership_and_transition(args: FlowArgs, flow_manager: Fl
 async def collect_datetime_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
     """Collect preferred date and optional time preference for appointment"""
     preferred_date = args.get("preferred_date", "").strip()
-    preferred_time = args.get("preferred_time", "").strip() 
+    preferred_time = args.get("preferred_time", "").strip()
     time_preference = args.get("time_preference", "any").strip().lower()
-    
+    first_available_mode = args.get("first_available_mode", False)
+
     if not preferred_date:
         return {"success": False, "message": "Please provide a date for your appointment"}, None
-    
+
     try:
-        # Parse and validate date
+        # Handle "FIRST AVAILABLE" mode - USE TOMORROW'S DATE
+        if first_available_mode:
+            # Calculate tomorrow's date in Italian timezone
+            from zoneinfo import ZoneInfo
+            italian_tz = ZoneInfo("Europe/Rome")
+            today = datetime.now(italian_tz)
+            tomorrow = today + timedelta(days=1)
+            tomorrow_date = tomorrow.strftime('%Y-%m-%d')
+
+            # Override preferred_date with tomorrow's date
+            preferred_date = tomorrow_date
+
+            flow_manager.state["preferred_date"] = preferred_date
+            flow_manager.state["first_available_mode"] = True
+            flow_manager.state["start_time"] = None
+            flow_manager.state["end_time"] = None
+            flow_manager.state["time_preference"] = "any time"
+            logger.info(f"🎯 FIRST AVAILABLE MODE ACTIVATED - searching from TOMORROW: {preferred_date}")
+
+            from flows.nodes.booking import create_slot_search_node
+            return {
+                "success": True,
+                "preferred_date": preferred_date,
+                "time_preference": "first available",
+                "first_available_mode": True
+            }, create_slot_search_node()
+
+        # Parse and validate date (for normal date selection, not first available)
         date_obj = datetime.strptime(preferred_date, "%Y-%m-%d")
         current_date = datetime.now().date()
         if date_obj.date() < current_date:
             return {"success": False, "message": f"Please select a future date after {current_date.strftime('%Y-%m-%d')}."}, None
-        
+
         # Store date
         flow_manager.state["preferred_date"] = preferred_date
-        
+
         # Handle time preferences - use database time format directly (no timezone conversion)
 
         if time_preference == "morning" or "morning" in preferred_time.lower():
@@ -493,10 +521,25 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
             # Pass user preferences for smart filtering
             user_preferred_date = flow_manager.state.get("preferred_date")
 
+            # Check if first available mode is active
+            first_available_mode = flow_manager.state.get("first_available_mode", False)
+
             logger.info(f"🚀 SMART FILTERING: Calling slot selection with:")
             logger.info(f"   - user_preferred_date: {user_preferred_date}")
             logger.info(f"   - time_preference: {time_preference}")
+            logger.info(f"   - first_available_mode: {first_available_mode}")
             logger.info(f"   - total_slots: {len(slots_response)}")
+
+            # CACHE ALL SLOTS FOR "SHOW MORE" REQUESTS (Hybrid First Available)
+            if first_available_mode:
+                flow_manager.state["cached_all_slots"] = slots_response
+                flow_manager.state["cached_search_params"] = {
+                    "preferred_date": user_preferred_date,
+                    "time_preference": time_preference,
+                    "service": current_service.model_dump() if hasattr(current_service, 'model_dump') else current_service.__dict__,
+                    "is_cerba_member": flow_manager.state.get("is_cerba_member", False)
+                }
+                logger.info(f"💾 CACHED: Stored {len(slots_response)} slots in state for 'show more' requests")
 
             return {
                 "success": True,
@@ -509,7 +552,8 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
                 service=current_service,
                 is_cerba_member=flow_manager.state.get("is_cerba_member", False),
                 user_preferred_date=user_preferred_date,
-                time_preference=time_preference
+                time_preference=time_preference,
+                first_available_mode=first_available_mode
             )
         else:
             error_message = f"No available slots found for {current_service.name} on {preferred_date}"
@@ -1011,13 +1055,13 @@ async def confirm_booking_summary_and_proceed(args: FlowArgs, flow_manager: Flow
             # Missing phone or DOB for lookup
             logger.warning(f"⚠️ Cannot perform patient lookup: missing phone ({bool(caller_phone)}) or DOB ({bool(patient_dob)})")
 
-        # Fallback: Normal name collection flow for new patients
-        from flows.nodes.patient_details import create_collect_name_node
+        # Fallback: Normal full name collection flow for new patients
+        from flows.nodes.patient_details import create_collect_full_name_node
         return {
             "success": True,
             "message": "Booking confirmed, starting personal information collection",
             "patient_found": False
-        }, create_collect_name_node()
+        }, create_collect_full_name_node()
 
     elif action == "cancel":
         logger.info("❌ Patient cancelled booking due to cost/preferences")
@@ -1067,3 +1111,196 @@ async def confirm_booking_summary_and_proceed(args: FlowArgs, flow_manager: Flow
 
     else:
         return {"success": False, "message": "Please let me know if you want to proceed, cancel, or change the booking"}, None
+
+
+async def show_more_same_day_slots_handler(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """
+    Show additional slots on the same day as the earliest slot
+    Uses cached slots from first available mode search
+    """
+    try:
+        logger.info("🔍 SHOW MORE SAME DAY: User requested additional slots on same day")
+
+        # Get cached data
+        cached_slots = flow_manager.state.get("cached_all_slots", [])
+        cached_params = flow_manager.state.get("cached_search_params", {})
+
+        logger.info(f"🔍 DEBUG: Found {len(cached_slots)} cached slots")
+
+        if not cached_slots:
+            logger.error("❌ No cached slots found - first available mode may not have been used")
+            return {
+                "success": False,
+                "message": "No cached slot data available. Please search for slots first."
+            }, None
+
+        # Parse all cached slots and find the earliest date
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        all_slots_with_dt = []
+        for slot in cached_slots:
+            try:
+                # Parse slot start_time (API uses 'start_time' field, not 'datetime')
+                slot_datetime_str = slot.get('start_time', '')
+                if not slot_datetime_str:
+                    logger.warning(f"⚠️ Slot missing 'start_time' field")
+                    continue
+
+                slot_dt = datetime.fromisoformat(slot_datetime_str.replace('Z', '+00:00'))
+                slot_dt_local = slot_dt.astimezone(ZoneInfo("Europe/Rome"))
+
+                all_slots_with_dt.append({
+                    'slot_data': slot,
+                    'datetime': slot_dt_local,
+                    'date_key': slot_dt_local.strftime('%Y-%m-%d')
+                })
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to parse slot datetime: {e}")
+                continue
+
+        if not all_slots_with_dt:
+            logger.error("❌ Could not parse any cached slots")
+            return {
+                "success": False,
+                "message": "Error processing cached slots"
+            }, None
+
+        # Sort by datetime and get the earliest date
+        all_slots_with_dt.sort(key=lambda x: x['datetime'])
+        earliest_date = all_slots_with_dt[0]['date_key']
+
+        # Filter to only slots on that earliest date
+        same_day_slots = [s['slot_data'] for s in all_slots_with_dt if s['date_key'] == earliest_date]
+
+        logger.info(f"📅 Found {len(same_day_slots)} total slots on earliest day ({earliest_date})")
+        logger.info(f"🔍 DEBUG: all_slots_with_dt count: {len(all_slots_with_dt)}")
+        logger.info(f"🔍 DEBUG: Parsed dates: {[s['date_key'] for s in all_slots_with_dt]}")
+
+        if len(same_day_slots) <= 1:
+            # Only 1 slot on that day (the one already shown)
+            return {
+                "success": False,
+                "message": f"That is the only available slot on {earliest_date}. Would you like to search for a different date?"
+            }, None
+
+        # Turn off first available mode and show all slots on that day
+        flow_manager.state["first_available_mode"] = False
+
+        from flows.nodes.booking import create_slot_selection_node
+        from models.requests import HealthService
+
+        # Reconstruct service from cached params
+        service_data = cached_params.get("service", {})
+        current_service = HealthService(**service_data) if isinstance(service_data, dict) else service_data
+
+        logger.success(f"✅ Showing all {len(same_day_slots)} slots on {earliest_date}")
+
+        return {
+            "success": True,
+            "message": f"Showing all available slots on {earliest_date}",
+            "slots_count": len(same_day_slots)
+        }, create_slot_selection_node(
+            slots=same_day_slots,
+            service=current_service,
+            is_cerba_member=cached_params.get("is_cerba_member", False),
+            user_preferred_date=earliest_date,
+            time_preference=cached_params.get("time_preference", "any time"),
+            first_available_mode=False  # Show all slots now
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error showing more same day slots: {e}")
+        return {
+            "success": False,
+            "message": "An error occurred while retrieving additional slots"
+        }, None
+
+
+async def search_different_date_handler(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
+    """
+    Search for slots on a specific different date requested by user
+    Performs a new API call with the requested date
+    """
+    try:
+        new_date = args.get("new_date")
+        time_preference = args.get("time_preference", "any time")
+
+        if not new_date:
+            logger.error("❌ No date provided for search")
+            return {
+                "success": False,
+                "message": "Please specify which date you'd like to search"
+            }, None
+
+        logger.info(f"🔍 SEARCH DIFFERENT DATE: User requested slots on {new_date} with preference '{time_preference}'")
+
+        # Clear first available mode
+        flow_manager.state["first_available_mode"] = False
+        flow_manager.state["preferred_date"] = new_date
+        flow_manager.state["time_preference"] = time_preference
+
+        # Get current service info
+        current_service_index = flow_manager.state.get("current_service_index", 0)
+        selected_services = flow_manager.state.get("selected_services", [])
+
+        if not selected_services or current_service_index >= len(selected_services):
+            logger.error("❌ No service information found")
+            return {
+                "success": False,
+                "message": "Service information not found. Please start the booking process again."
+            }, None
+
+        current_service = selected_services[current_service_index]
+        selected_center = flow_manager.state.get("selected_center")
+
+        if not selected_center:
+            logger.error("❌ No health center selected")
+            return {
+                "success": False,
+                "message": "Health center information not found. Please start the booking process again."
+            }, None
+
+        # Perform new slot search with the requested date
+        logger.info(f"🔎 Searching slots for {current_service.name} on {new_date}")
+
+        slots_response = list_slot(
+            health_center_uuid=selected_center.uuid,
+            date_search=new_date,
+            uuid_exam=[current_service.uuid],
+            gender=flow_manager.state.get("patient_gender", "m"),
+            date_of_birth=flow_manager.state.get("patient_dob", "1980-04-13")
+        )
+
+        if slots_response and len(slots_response) > 0:
+            flow_manager.state["available_slots"] = slots_response
+            logger.success(f"✅ Found {len(slots_response)} slots on {new_date}")
+
+            from flows.nodes.booking import create_slot_selection_node
+
+            return {
+                "success": True,
+                "message": f"Found {len(slots_response)} available slots on {new_date}",
+                "slots_count": len(slots_response)
+            }, create_slot_selection_node(
+                slots=slots_response,
+                service=current_service,
+                is_cerba_member=flow_manager.state.get("is_cerba_member", False),
+                user_preferred_date=new_date,
+                time_preference=time_preference,
+                first_available_mode=False
+            )
+        else:
+            logger.warning(f"⚠️ No slots found on {new_date}")
+            from flows.nodes.booking import create_no_slots_node
+            return {
+                "success": False,
+                "message": f"No available slots found on {new_date}"
+            }, create_no_slots_node(new_date, time_preference)
+
+    except Exception as e:
+        logger.error(f"❌ Error searching different date: {e}")
+        return {
+            "success": False,
+            "message": "An error occurred while searching for slots"
+        }, None

@@ -115,30 +115,4 @@ def create_phone_edit_node() -> NodeConfig:
     )
 
 
-def create_fiscal_code_edit_node() -> NodeConfig:
-    """Create node for editing patient fiscal code"""
-    return NodeConfig(
-        name="edit_patient_fiscal_code",
-        role_messages=[{
-            "role": "system",
-            "content": f"Collect the patient's corrected fiscal code. Ask them to spell it letter by letter and digit by digit for accuracy. {settings.language_config}"
-        }],
-        task_messages=[{
-            "role": "system",
-            "content": "Please tell me your correct fiscal code, letter by letter and digit by digit."
-        }],
-        functions=[
-            FlowsFunctionSchema(
-                name="update_fiscal_code",
-                handler=handle_fiscal_code_edit,
-                description="Update patient's fiscal code",
-                properties={
-                    "fiscal_code": {
-                        "type": "string",
-                        "description": "Patient's corrected fiscal code"
-                    }
-                },
-                required=["fiscal_code"]
-            )
-        ]
-    )
+# FISCAL CODE EDIT NODE REMOVED - Fiscal code is now hardcoded for new patients

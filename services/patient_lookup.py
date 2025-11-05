@@ -30,12 +30,12 @@ PATIENTS_DB = [
     },
     {
         "id": "p3",
-        "phone": "+393333319326",
-        "first_name": "Rudy Son",
-        "last_name": "Krsip",
-        "dob": "1985-03-01",
-        "fiscal_code": "FC10003",
-        "email": "rudy.son@gmail.com"
+        "phone": "+393356441141",
+        "first_name": "Stefano",
+        "last_name": "Massaro",
+        "dob": "1976-07-11",
+        "fiscal_code": "MSSSFN76L11F205N",
+        "email": "stefano.massaro@cerbahealthcare.it"
     }
 ]
 
@@ -157,10 +157,14 @@ def populate_patient_state(flow_manager, patient: Dict[str, Any]) -> None:
     if not patient:
         return
 
+    # Combine first and last name into full_name
+    first_name = patient.get('first_name', '')
+    last_name = patient.get('last_name', '')
+    full_name = f"{first_name} {last_name}".strip()
+
     # Populate all patient fields in state
     flow_manager.state.update({
-        "patient_name": patient.get('first_name', ''),
-        "patient_surname": patient.get('last_name', ''),
+        "patient_full_name": full_name,  # Store combined full name
         "patient_phone": patient.get('phone', ''),
         "patient_email": patient.get('email', ''),
         "generated_fiscal_code": patient.get('fiscal_code', ''),
@@ -182,13 +186,9 @@ def get_patient_summary_text(patient: Dict[str, Any]) -> str:
     Returns:
         Formatted summary text for phone verification only
     """
-    phone = patient.get('phone', '')
-
     return f"""Perfect! We found your details in our Cerba Healthcare database and can proceed without collecting your personal information again.
 
-We will send a booking confirmation SMS to: {phone}
-
-Is this phone number correct, or would you like to change it? You can say "correct" to proceed with this number, or "change phone" to update it."""
+We have your information in our database and we will message the booking confirmation text to the phone number from where you are calling right now. Should we proceed or you need to change the phone number?"""
 
 
 # Global patient lookup service instance

@@ -69,6 +69,8 @@ desktop.ini
 *.bak
 *.tmp
 *~
+*:Zone.Identifier
+*:Zone.Identifier:Zone.Identifier
 
 # Build and Documentation
 docs/_build/

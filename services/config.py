@@ -27,7 +27,7 @@ class Config:
     CACHE_EXPIRY_HOURS: int = int(os.getenv("CACHE_EXPIRY_HOURS", "1"))
     
     # Request Configuration
-    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "30"))
+    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "50"))
     
     # Service Search Configuration
     DEFAULT_SEARCH_LIMIT: int = int(os.getenv("DEFAULT_SEARCH_LIMIT", "5"))

@@ -52,9 +52,12 @@ async def collect_dob_and_transition(args: FlowArgs, flow_manager: FlowManager) 
                 flow_manager.state["patient_dob"] = dob
                 logger.info(f"📅 DOB collected: {dob}")
 
-                # Transition to birth city collection
-                from flows.nodes.patient_info import create_collect_birth_city_node
-                return {"success": True, "date_of_birth": dob}, create_collect_birth_city_node()
+                # Skip birth city collection - go directly to verification
+                address = flow_manager.state.get("patient_address", "")
+                gender = flow_manager.state.get("patient_gender", "")
+
+                from flows.nodes.patient_info import create_verify_basic_info_node
+                return {"success": True, "date_of_birth": dob}, create_verify_basic_info_node(address, gender, dob)
             else:
                 return {"success": False, "message": "Please provide your date of birth again"}, None
         except Exception:
@@ -63,23 +66,7 @@ async def collect_dob_and_transition(args: FlowArgs, flow_manager: FlowManager) 
         return {"success": False, "message": "Please provide your date of birth"}, None
 
 
-async def collect_birth_city_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
-    """Collect birth city and transition to verification"""
-    birth_city = args.get("birth_city", "").strip()
-
-    if birth_city:
-        flow_manager.state["patient_birth_city"] = birth_city
-        logger.info(f"🏙️ Birth city collected: {birth_city}")
-
-        # Transition to verification node with all collected data
-        address = flow_manager.state.get("patient_address", "")
-        gender = flow_manager.state.get("patient_gender", "")
-        dob = flow_manager.state.get("patient_dob", "")
-
-        from flows.nodes.patient_info import create_verify_basic_info_node
-        return {"success": True, "birth_city": birth_city}, create_verify_basic_info_node(address, gender, dob, birth_city)
-    else:
-        return {"success": False, "message": "Please provide your birth city"}, None
+# BIRTH CITY HANDLER REMOVED - No longer needed without fiscal code generation
 
 
 async def verify_basic_info_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -115,15 +102,11 @@ async def verify_basic_info_and_transition(args: FlowArgs, flow_manager: FlowMan
         elif field_to_change == "date_of_birth":
             flow_manager.state["patient_dob"] = new_value
             logger.info(f"📅 DOB updated to: {new_value}")
-        elif field_to_change == "birth_city":
-            flow_manager.state["patient_birth_city"] = new_value
-            logger.info(f"🏙️ Birth city updated to: {new_value}")
 
         # Create new verification node with updated values
         address = flow_manager.state.get("patient_address", "")
         gender = flow_manager.state.get("patient_gender", "")
         dob = flow_manager.state.get("patient_dob", "")
-        birth_city = flow_manager.state.get("patient_birth_city", "")
 
         from flows.nodes.patient_info import create_verify_basic_info_node
         return {
@@ -131,7 +114,7 @@ async def verify_basic_info_and_transition(args: FlowArgs, flow_manager: FlowMan
             "message": f"Updated {field_to_change}. Please verify again.",
             "field_updated": field_to_change,
             "new_value": new_value
-        }, create_verify_basic_info_node(address, gender, dob, birth_city)
+        }, create_verify_basic_info_node(address, gender, dob)
 
     else:
         logger.info("🔄 Invalid action, restarting address collection")
@@ -140,7 +123,6 @@ async def verify_basic_info_and_transition(args: FlowArgs, flow_manager: FlowMan
         flow_manager.state.pop("patient_address", None)
         flow_manager.state.pop("patient_gender", None)
         flow_manager.state.pop("patient_dob", None)
-        flow_manager.state.pop("patient_birth_city", None)
 
         from flows.nodes.patient_info import create_collect_address_node
         return {

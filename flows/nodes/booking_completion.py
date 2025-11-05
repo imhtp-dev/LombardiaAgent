@@ -89,7 +89,16 @@ Is there anything else I can help you with today?"""
         name="booking_success_final",
         role_messages=[{
             "role": "system",
-            "content": f"Celebrate the completion of the booking with warmth and professionalism. Always say 'euro' instead of using the € symbol. Speak naturally like a friendly assistant. {settings.language_config}"
+            "content": f"""Celebrate the completion of the booking with warmth and professionalism. Always say 'euro' instead of using the € symbol. Speak naturally like a friendly assistant.
+
+📅 DATE AND TIME FORMATTING RULES (MUST FOLLOW):
+- ALWAYS remove leading zeros from BOTH hours AND minutes
+- "07:30" → "7:30", "03:15" → "3:15", "09:45" → "9:45"
+- "11:05" → "11:5" (remove the 0!), "14:05" → "14:5", "08:07" → "8:7"
+- For times ending in :00, say "o'clock": "07:00" → "7 o'clock"
+- Remove leading zeros from dates: "01 November" → "1 November"
+
+{settings.language_config}"""
         }],
         task_messages=[{
             "role": "system",
