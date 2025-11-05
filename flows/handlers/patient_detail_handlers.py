@@ -28,7 +28,7 @@ async def send_booking_confirmation_sms_async(booking_response: Dict, booking_da
 
         # Get patient info
         patient_info = booking_data.get("patient", {})
-        patient_name = f"{patient_info.get('name', '')} {patient_info.get('surname', '')}".strip()
+        patient_name = patient_info.get('name', '').strip()  # Only first name for SMS greeting
         patient_phone = patient_info.get("phone", "")
 
         # Get service and center info
