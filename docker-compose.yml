@@ -3,7 +3,7 @@ services:
     image: rudyimhtpdev/voicebooking_piemo1:latest
     # NO container_name - allows scaling with: docker-compose up --scale pipecat-agent=10
     ports:
-      - "8000-8020:8000"  # Port range for up to 20 instances
+      - "8000:8000"  # Fixed port 8000 for stable bridge connection
     environment:
       - PORT=8000
       - HOST=0.0.0.0
