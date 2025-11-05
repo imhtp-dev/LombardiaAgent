@@ -1,9 +1,9 @@
 services:
+  # Pipecat booking agent - scales to handle multiple concurrent calls
   pipecat-agent:
     image: rudyimhtpdev/voicebooking_piemo1:latest
     # NO container_name - allows scaling with: docker-compose up --scale pipecat-agent=10
-    ports:
-      - "8000:8000"  # Fixed port 8000 for stable bridge connection
+    # NO ports exposed - internal network only, accessed via service name by bridge
     environment:
       - PORT=8000
       - HOST=0.0.0.0
@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
     deploy:
       mode: replicated
-      replicas: 1  # Scale with: docker-compose up --scale pipecat-agent=10
+      replicas: 5  # 5 instances for testing concurrent calls
       resources:
         limits:
           memory: 1500M  # Reduced from 4G (each container needs ~1GB)
@@ -39,6 +39,33 @@ services:
         hard: 65536
     networks:
       - pipecat-network
+
+  # Talkdesk Bridge - connects telephony to pipecat agents
+  # Accessible from external (Talkdesk) on port 8080
+  talkdesk-bridge:
+    build:
+      context: ./talkdeskbridge
+      dockerfile: Dockerfile
+    container_name: talkdesk-bridge
+    ports:
+      - "8080:8080"  # External access for Talkdesk
+    environment:
+      - PORT=8080
+      - PIPECAT_SERVER_URL=ws://pipecat-agent:8000  # Internal Docker service name
+      - PIPECAT_ASSISTANT_ID=12689
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - pipecat-agent
+    networks:
+      - pipecat-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   pipecat-network:
