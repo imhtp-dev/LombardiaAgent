@@ -51,7 +51,7 @@ services:
       - "8080:8080"  # External access for Talkdesk
     environment:
       - PORT=8080
-      - PIPECAT_SERVER_URL=ws://pipecat-agent:8000  # Internal Docker service name
+      - PIPECAT_SERVER_URL=ws://pipecat-agent:8000/ws  # WebSocket endpoint
       - PIPECAT_ASSISTANT_ID=12689
     env_file:
       - .env
@@ -61,7 +61,7 @@ services:
     networks:
       - pipecat-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 15s
       timeout: 10s
       retries: 3
