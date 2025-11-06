@@ -48,7 +48,7 @@ services:
       dockerfile: Dockerfile
     container_name: talkdesk-bridge
     ports:
-      - "8080:8080"  # External access for Talkdesk
+      - "8000:8080"  # External 8000 (Azure firewall open) → Internal 8080
     environment:
       - PORT=8080
       - PIPECAT_SERVER_URL=ws://pipecat-agent:8000/ws  # WebSocket endpoint
