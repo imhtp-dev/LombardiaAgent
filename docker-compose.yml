@@ -69,4 +69,5 @@ services:
 
 networks:
   pipecat-network:
-    driver: bridge
+    driver: overlay
+    attachable: true
