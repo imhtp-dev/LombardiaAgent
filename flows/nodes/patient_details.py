@@ -46,12 +46,7 @@ def create_collect_full_name_node() -> NodeConfig:
                 },
                 required=["full_name"]
             )
-        ],
-        # Reset context to clear slot data after booking selection
-        context_strategy=ContextStrategyConfig(
-            strategy=ContextStrategy.RESET_WITH_SUMMARY,
-            summary_prompt="Summarize ONLY the following information: patient name (if mentioned), selected healthcare service, and the booked appointment date and time. DO NOT include any slot details, UUIDs, or availability data."
-        )
+        ]
     )
 
 

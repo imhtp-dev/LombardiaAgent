@@ -71,7 +71,7 @@ IMPORTANT INSTRUCTIONS:
 3. Follow yes/no branches based on user responses
 4. When presenting service options, show ONLY service names from list_health_services - NEVER mention UUIDs
 5. If list_health_services is empty in a question but contains services in response branches, show those services when asking the question
-6. When user selects additional services, track them internally with their UUIDs
+6. When user selects additional services, track them internally with their UUIDs, codes, AND sectors
 7. When user answers "yes" to specialist visit questions, include those specialist services
 8. When reaching a final action (save_cart, etc.), call finalize_services function
 9. CRITICAL: include ALL services chosen by user during conversation
@@ -82,9 +82,24 @@ IMPORTANT INSTRUCTIONS:
 - List only service names separated by commas or line breaks, without numerical prefixes
 - If a question is about services but list_health_services is empty, check response branches for available services to display
 
+**SECTOR AND CODE EXTRACTION (CRITICAL):**
+The flow structure contains parallel arrays that MUST be kept in sync:
+- list_health_services: ["Service A", "Service B", "Service C"]
+- list_health_servicesUUID: ["uuid-a", "uuid-b", "uuid-c"]
+- health_service_code: ["code-a", "code-b", "code-c"]
+- sector: ["optionals", "prescriptions", "optionals"]
+
+When user selects a service, you MUST extract all three values at the same index:
+Example: If user chooses "Service B" (index 1 in list_health_services):
+- uuid = list_health_servicesUUID[1] = "uuid-b"
+- code = health_service_code[1] = "code-b"
+- sector = sector[1] = "prescriptions"
+
+When calling finalize_services function, you MUST include uuid, name, code, AND sector for EACH service.
+
 Flow decision logic:
-- If user chooses additional services from main list, include those services
-- If user answers YES to specialist visit questions, include specialist services from that branch
+- If user chooses additional services from main list, extract uuid+code+sector for those services
+- If user answers YES to specialist visit questions, extract uuid+code+sector for specialist services from that branch
 - If user answers NO, follow the "no" branch accordingly
 
 FUNDAMENTAL: When asking questions about services:
@@ -110,12 +125,14 @@ Be conversational but follow the flow structure carefully. Always speak like a h
                         "items": {
                             "type": "object",
                             "properties": {
-                                "uuid": {"type": "string", "description": "Service UUID from the flow structure"},
-                                "name": {"type": "string", "description": "Service name from the flow structure"}
+                                "uuid": {"type": "string", "description": "Service UUID from list_health_servicesUUID array"},
+                                "name": {"type": "string", "description": "Service name from list_health_services array"},
+                                "code": {"type": "string", "description": "Service code from health_service_code array"},
+                                "sector": {"type": "string", "description": "Service sector from sector array (health_services, prescriptions, preliminary_visits, optionals, opinions)"}
                             },
-                            "required": ["uuid", "name"]
+                            "required": ["uuid", "name", "code", "sector"]
                         },
-                        "description": "ALL additional services selected during flow navigation, including optional services AND specialist visits if user chose them"
+                        "description": "ALL additional services selected during flow navigation with their uuid, name, code, and sector extracted from the parallel arrays in the flow structure"
                     },
                     "specialist_visit_chosen": {
                         "type": "boolean",
@@ -247,6 +264,8 @@ def create_no_centers_node(address: str, service_name: str) -> NodeConfig:
 
 def create_cerba_membership_node() -> NodeConfig:
     """Create Cerba membership check node"""
+    from pipecat_flows import ContextStrategyConfig, ContextStrategy
+
     return NodeConfig(
         name="cerba_membership_check",
         role_messages=[{
@@ -274,9 +293,15 @@ def create_cerba_membership_node() -> NodeConfig:
     )
 
 
-def create_collect_datetime_node() -> NodeConfig:
-    """Create date and time collection node with LLM-driven natural language support"""
+def create_collect_datetime_node(service_name: str = None, is_multi_service: bool = False) -> NodeConfig:
+    """Create date and time collection node with LLM-driven natural language support
+
+    Args:
+        service_name: Optional service name to show in prompt (e.g., "Visita Ortopedica")
+        is_multi_service: If True, says "next appointment", if False says "first appointment"
+    """
     from datetime import datetime
+    from pipecat_flows import ContextStrategyConfig, ContextStrategy
 
     # Get today's complete date information for LLM context
     today = datetime.now()
@@ -284,8 +309,25 @@ def create_collect_datetime_node() -> NodeConfig:
     today_day = today.strftime("%A")  # Full day name (e.g., "Thursday")
     today_formatted = today.strftime("%B %d, %Y")  # e.g., "October 16, 2025"
 
+    # Determine node name and task content based on service name
+    if service_name:
+        if is_multi_service:
+            task_content = f"What date and time would you prefer for your next appointment: {service_name}?"
+        else:
+            task_content = f"What date and time would you prefer for your first appointment: {service_name}?"
+        node_name = "collect_datetime_service"
+    else:
+        task_content = "What date and time would you prefer for your appointment?"
+        node_name = "collect_datetime"
+
     return NodeConfig(
-        name="collect_datetime",
+        name=node_name,
+        pre_actions=[
+            {
+                "type": "tts_say",
+                "text": "Great! Now let's schedule your appointment."
+            }
+        ],
         role_messages=[{
             "role": "system",
             "content": f"""Today is {today_day}, {today_formatted} (date: {today_date}). The current year is 2025.
@@ -323,7 +365,7 @@ Always use 24-hour time format. Be flexible with user input formats. Speak natur
         }],
         task_messages=[{
             "role": "system",
-            "content": "What date and time would you prefer for your appointment?"
+            "content": task_content
         }],
         functions=[
             FlowsFunctionSchema(
@@ -349,46 +391,6 @@ Always use 24-hour time format. Be flexible with user input formats. Speak natur
                     }
                 },
                 required=["preferred_date"]
-            )
-        ]
-    )
-
-
-def create_collect_datetime_node_for_service(service_name: str = None, is_multi_service: bool = False) -> NodeConfig:
-    """Create date and time collection node, optionally for specific service"""
-    if is_multi_service and service_name:
-        task_content = f"What date and time would you prefer for your appointment? {service_name}? {settings.language_config}"
-        node_name = f"collect_datetime_{service_name.lower().replace(' ', '_')}"
-    else:
-        task_content = f"What date and time would you prefer for your appointment? {settings.language_config}"
-        node_name = "collect_datetime"
-    
-    return NodeConfig(
-        name=node_name,
-        role_messages=[{
-            "role": "system",
-            "content": f"Collect the preferred date and time for the appointment. Internally convert the user's natural language date/time into YYYY-MM-DD and 24-hour clock formats. Be flexible with user input formats. {settings.language_config}"
-        }],
-        task_messages=[{
-            "role": "system",
-            "content": task_content
-        }],
-        functions=[
-            FlowsFunctionSchema(
-                name="collect_datetime",
-                handler=collect_datetime_and_transition,
-                description="Collect preferred appointment date and time",
-                properties={
-                    "preferred_date": {
-                        "type": "string",
-                        "description": "Preferred appointment date in YYYY-MM-DD format. If user doesn't specify year, assume current year (2025). Examples: '24 November' → '2025-11-24', 'December 15' → '2025-12-15'"
-                    },
-                    "preferred_time": {
-                        "type": "string",
-                        "description": "Preferred appointment time (e.g., '9:00', '14:30')"
-                    }
-                },
-                required=["preferred_date", "preferred_time"]
             )
         ]
     )
@@ -950,18 +952,27 @@ def create_slot_refresh_node(service_name: str) -> NodeConfig:
     )
 
 
-def create_no_slots_node(date: str, time_preference: str = "any time") -> NodeConfig:
+def create_no_slots_node(date: str, time_preference: str = "any time", first_appointment_date: str = None) -> NodeConfig:
     """Create node when no slots are available - with human-like alternative suggestions"""
+
+    # Build constraint message for multi-service bookings
+    date_constraint_msg = ""
+    system_constraint_msg = ""
+
+    if first_appointment_date:
+        date_constraint_msg = f" IMPORTANT: Since this is your second appointment, it must be scheduled on or after your first appointment date ({first_appointment_date}). Please do not suggest any dates before {first_appointment_date}."
+        system_constraint_msg = f"CRITICAL CONSTRAINT: This is a multi-service booking. The first appointment is on {first_appointment_date}. You MUST NOT suggest any dates before {first_appointment_date}. Only suggest dates on {first_appointment_date} or later dates. "
+
     if time_preference == "any time":
-        no_slots_message = f"I'm sorry, there are no available slots for {date}. I'd like to suggest some alternatives: would you like to try a different date? I can also check if there are available slots on nearby dates, for example a few days before or after."
+        no_slots_message = f"I'm sorry, there are no available slots for {date}.{date_constraint_msg} I'd like to suggest some alternatives: would you like to try a different date? I can check if there are available slots on nearby dates."
     else:
-        no_slots_message = f"I'm sorry, there are no available slots for {date} for {time_preference}. I'd like to suggest some alternatives: would you like to try a different date or time? For example, we might have available slots for {date} at a different time or on another date."
-    
+        no_slots_message = f"I'm sorry, there are no available slots for {date} for {time_preference}.{date_constraint_msg} I'd like to suggest some alternatives: would you like to try a different date or time? For example, we might have available slots for {date} at a different time or on another date."
+
     return NodeConfig(
         name="no_slots_available",
         role_messages=[{
             "role": "system",
-            "content": f"We are in 2025. When there are no available slots, be helpful and suggest alternatives in a human way. Offer to search for different dates or times. Never mention technical details or UUIDs. {settings.language_config}"
+            "content": f"{system_constraint_msg}We are in 2025. When there are no available slots, be helpful and suggest alternatives in a human way. Offer to search for different dates or times. Never mention technical details or UUIDs. {settings.language_config}"
         }],
         task_messages=[{
             "role": "system",
@@ -999,42 +1010,44 @@ def create_booking_summary_confirmation_node(selected_services: List[HealthServi
     # Use full center name directly
 
     # Format service details
+    # NOTE: Use service_name from booked_slots to support multi-service bundles and separate bookings
     services_text = []
-    for i, service in enumerate(selected_services):
-        if i < len(selected_slots):
-            slot = selected_slots[i]
-            # Convert UTC slot times to Italian local time for user display
-            from services.timezone_utils import utc_to_italian_display
+    for i, slot in enumerate(selected_slots):
+        # Convert UTC slot times to Italian local time for user display
+        from services.timezone_utils import utc_to_italian_display
 
-            italian_start = utc_to_italian_display(slot["start_time"])
-            italian_end = utc_to_italian_display(slot["end_time"])
+        italian_start = utc_to_italian_display(slot["start_time"])
+        italian_end = utc_to_italian_display(slot["end_time"])
 
-            # Fallback to original if conversion fails
-            if not italian_start or not italian_end:
-                logger.warning(f"⚠️ Timezone conversion failed for booking summary, using original times")
-                start_time_str = slot["start_time"].replace("T", " ").replace("+00:00", "")
-                end_time_str = slot["end_time"].replace("T", " ").replace("+00:00", "")
-                start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
-                end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+        # Fallback to original if conversion fails
+        if not italian_start or not italian_end:
+            logger.warning(f"⚠️ Timezone conversion failed for booking summary, using original times")
+            start_time_str = slot["start_time"].replace("T", " ").replace("+00:00", "")
+            end_time_str = slot["end_time"].replace("T", " ").replace("+00:00", "")
+            start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S")
+            end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S")
+        else:
+            # Use converted Italian times
+            start_dt = datetime.strptime(italian_start, "%Y-%m-%d %H:%M:%S")
+            end_dt = datetime.strptime(italian_end, "%Y-%m-%d %H:%M:%S")
+
+        formatted_date = start_dt.strftime("%d %B %Y")
+        formatted_time = start_dt.strftime("%-H:%M")
+
+        # Get service name from slot (supports bundle/combined/separate scenarios)
+        service_name = slot.get("service_name", "Service")
+
+        # Get the actual service price from the slot data
+        service_cost = slot.get('price', 0)
+        if service_cost == 0 and 'health_services' in slot and len(slot['health_services']) > 0:
+            # Try to get price from health_services within the slot
+            health_service = slot['health_services'][0]
+            if is_cerba_member:
+                service_cost = health_service.get('cerba_card_price', health_service.get('price', 0))
             else:
-                # Use converted Italian times
-                start_dt = datetime.strptime(italian_start, "%Y-%m-%d %H:%M:%S")
-                end_dt = datetime.strptime(italian_end, "%Y-%m-%d %H:%M:%S")
+                service_cost = health_service.get('price', 0)
 
-            formatted_date = start_dt.strftime("%d %B %Y")
-            formatted_time = start_dt.strftime("%-H:%M")
-
-            # Get the actual service price from the slot's health_services data
-            service_cost = slot.get('price', 0)
-            if service_cost == 0 and 'health_services' in slot and len(slot['health_services']) > 0:
-                # Try to get price from health_services within the slot
-                health_service = slot['health_services'][0]
-                if is_cerba_member:
-                    service_cost = health_service.get('cerba_card_price', health_service.get('price', 0))
-                else:
-                    service_cost = health_service.get('price', 0)
-
-            services_text.append(f"• {service.name} il {formatted_date} alle {formatted_time} - {int(service_cost)} euro")
+        services_text.append(f"• {service_name} il {formatted_date} alle {formatted_time} - {int(service_cost)} euro")
 
     services_summary = "\n".join(services_text)
 
@@ -1147,6 +1160,41 @@ def create_slot_search_processing_node(service_name: str, tts_message: str) -> N
                 name="perform_slot_search",
                 handler=perform_slot_search_and_transition,
                 description="Execute the actual slot search after TTS message",
+                properties={},
+                required=[]
+            )
+        ]
+    )
+
+
+def create_automatic_slot_search_node(service_name: str, tts_message: str) -> NodeConfig:
+    """
+    Create a processing node for automatic slot search (for 2nd+ services in separate scenario)
+    This node automatically searches for slots without asking user for date/time
+    """
+    from flows.handlers.booking_handlers import perform_slot_search_and_transition
+
+    return NodeConfig(
+        name="automatic_slot_search",
+        pre_actions=[
+            {
+                "type": "tts_say",
+                "text": tts_message
+            }
+        ],
+        role_messages=[{
+            "role": "system",
+            "content": f"You are processing automatic slot search for {service_name}. The date and time have been automatically calculated based on the first service. Immediately call perform_slot_search to execute the search. {settings.language_config}"
+        }],
+        task_messages=[{
+            "role": "system",
+            "content": f"Searching for available slots for {service_name} on the same day as your first service, starting 1 hour after your first appointment ends. Please wait."
+        }],
+        functions=[
+            FlowsFunctionSchema(
+                name="perform_slot_search",
+                handler=perform_slot_search_and_transition,
+                description="Execute automatic slot search with pre-calculated date/time",
                 properties={},
                 required=[]
             )
