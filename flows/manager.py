@@ -73,7 +73,8 @@ async def initialize_flow_manager(flow_manager: FlowManager, start_node: str = "
             uuid="9a93d65f-396a-45e4-9284-94481bdd2b51",
             name="RX Caviglia Destra ",
             code="RRAD0019",
-            synonyms=["Esame Radiografico Caviglia Destra","Esame Radiografico Caviglia dx","Lastra Caviglia Destra","Radiografia Caviglia Destra","Radiografia Caviglia dx","Radiografia della Caviglia Destra","Raggi Caviglia Destra","Raggi Caviglia dx","Raggi x Caviglia Destra","Raggi x Caviglia dx","RX Caviglia dx","RX della Caviglia Destra"]
+            synonyms=["Esame Radiografico Caviglia Destra","Esame Radiografico Caviglia dx","Lastra Caviglia Destra","Radiografia Caviglia Destra","Radiografia Caviglia dx","Radiografia della Caviglia Destra","Raggi Caviglia Destra","Raggi Caviglia dx","Raggi x Caviglia Destra","Raggi x Caviglia dx","RX Caviglia dx","RX della Caviglia Destra"],
+            sector="health_services"
         )
 
         flow_manager.state.update({
@@ -123,7 +124,8 @@ async def initialize_flow_manager(flow_manager: FlowManager, start_node: str = "
             uuid="9a93d65f-396a-45e4-9284-94481bdd2b51",
             name="RX Caviglia Destra",
             code="RRAD0019",
-            synonyms=["Esame Radiografico Caviglia Destra", "Esame Radiografico Caviglia dx", "Lastra Caviglia Destra", "Radiografia Caviglia Destra", "Radiografia Caviglia dx", "Radiografia della Caviglia Destra", "Raggi Caviglia Destra", "Raggi Caviglia dx", "Raggi x Caviglia Destra", "Raggi x Caviglia dx", "RX Caviglia dx", "RX della Caviglia Destra"]
+            synonyms=["Esame Radiografico Caviglia Destra", "Esame Radiografico Caviglia dx", "Lastra Caviglia Destra", "Radiografia Caviglia Destra", "Radiografia Caviglia dx", "Radiografia della Caviglia Destra", "Raggi Caviglia Destra", "Raggi Caviglia dx", "Raggi x Caviglia Destra", "Raggi x Caviglia dx", "RX Caviglia dx", "RX della Caviglia Destra"],
+            sector="health_services"
         )
 
         flow_manager.state.update({
@@ -160,6 +162,63 @@ async def initialize_flow_manager(flow_manager: FlowManager, start_node: str = "
 
         # Initialize with date collection node - user will be asked for preferred date/time
         await flow_manager.initialize(create_collect_datetime_node())
+    elif start_node == "cerba_card":
+        from flows.nodes.booking import create_cerba_membership_node
+        from models.requests import HealthService, HealthCenter
+
+        # Pre-populate state with test data up to the point where Cerba Card question is asked
+        service1 = HealthService(
+            uuid="9a93d65f-396a-45e4-9284-94481bdd2b51",  # RX Caviglia Destra
+            name="RX Caviglia Destra ",
+            code="RRAD0019",
+            synonyms=[],
+            sector="health_services"
+        )
+        service2 = HealthService(
+            uuid="1cc793b7-4a8b-4c54-ac09-3c7ca7e5a168",  # Visita Ortopedica
+            name="Visita Ortopedica (Prima Visita)",
+            code="PORT0001",
+            synonyms=[],
+            sector="prescriptions"  # Since user said "no" to prescription, this will be prescriptions sector
+        )
+
+        flow_manager.state.update({
+            # Multi-service booking data
+            "selected_services": [service1, service2],
+            "service_groups": [
+                {"services": [service2], "is_group": False},  # First group: Visita Ortopedica
+                {"services": [service1], "is_group": False}   # Second group: RX Caviglia
+            ],
+            "booking_scenario": "separate",
+            "current_group_index": 0,
+
+            # Center selection data
+            "selected_center": HealthCenter(
+                uuid="c5535638-6c18-444c-955d-89139d8276be",  # Cologno Monzese
+                name="Cologno Monzese Viale Liguria 37 - Curie",
+                address="Viale Liguria 37",
+                city="Cologno Monzese",
+                district="Milano",
+                phone="+39 02 1234567",
+                region="Lombardia"
+            ),
+
+            # Patient data
+            "patient_data": {
+                "gender": "m",
+                "date_of_birth": "1989-04-29",  # 29 April 1989
+                "address": "Milan",
+                "birth_city": "Milan"
+            },
+
+            # Flow completion flags
+            "center_selected": True,
+            "sorting_api_success": True,
+            "services_finalized": True
+        })
+
+        # Initialize at Cerba Card question
+        await flow_manager.initialize(create_cerba_membership_node())
     else:
         # Default to greeting node
         await flow_manager.initialize(create_greeting_node())

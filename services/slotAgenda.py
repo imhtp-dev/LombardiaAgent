@@ -133,6 +133,6 @@ def delete_slot(slot_uuid):
     return response
 
 
-#print(list_slot("c48ff93f-1c88-4621-9cd5-31ad87e83e48","2025-10-24","9a93d65f-396a-45e4-9284-94481bdd2b51"))
+print(list_slot("c48ff93f-1c88-4621-9cd5-31ad87e83e48","2025-10-24","9a93d65f-396a-45e4-9284-94481bdd2b51", start_time="2025-11-17 07:00:00+00", end_time="2025-11-17 17:00:00+00"))
 #print(create_slot('2025-10-08 15:15:00','2025-10-08 15:25:00',"d1bbc9cd-e7e8-4e1e-8075-b637824504a6"))
 #print(create_slot('2025-10-27 11:25:00','2025-10-27 11:30:00',"d1bbc9cd-e7e8-4e1e-8075-b637824504a6"))

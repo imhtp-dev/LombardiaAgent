@@ -165,56 +165,53 @@ async def finalize_services_and_search_centers(args: FlowArgs, flow_manager: Flo
         for additional_service in additional_services:
             service_uuid = additional_service.get("uuid")
             service_name = additional_service.get("name")
-            
-            if service_uuid and service_uuid not in existing_uuids:
-                # Create HealthService object for consistency
+            service_code = additional_service.get("code")
+            service_sector = additional_service.get("sector")
+
+            logger.debug(f"🔍 Processing additional service from LLM:")
+            logger.debug(f"   Name: {service_name}")
+            logger.debug(f"   UUID: {service_uuid}")
+            logger.debug(f"   Code: {service_code}")
+            logger.debug(f"   Sector: {service_sector}")
+
+            # Check for duplicates FIRST (before validation)
+            # This handles cases where LLM includes the original service without proper code/sector
+            if not service_uuid:
+                logger.error(f"❌ Service missing UUID: {service_name}")
+                continue
+
+            if service_uuid in existing_uuids:
+                logger.debug(f"⚠️ Service '{service_name}' (UUID: {service_uuid}) already in selected services, skipping")
+                continue
+
+            # Validate required fields for NEW services only
+            if not service_code:
+                logger.error(f"❌ Service '{service_name}' missing code field - LLM did not extract it from flow structure")
+                continue
+
+            if not service_sector:
+                logger.error(f"❌ Service '{service_name}' missing sector field - LLM did not extract it from flow structure")
+                continue
+
+            # Create HealthService object with all required fields
+            try:
                 new_service = HealthService(
                     uuid=service_uuid,
                     name=service_name,
-                    code="",  # Will be filled from API if needed
-                    synonyms=[]
+                    code=service_code,
+                    synonyms=[],
+                    sector=service_sector
                 )
                 selected_services.append(new_service)
                 existing_uuids.add(service_uuid)
-                logger.success(f"✅ Added additional service: {service_name}")
-        
-        # Special handling for specialist visit based on flow structure
-        if specialist_visit_chosen and generated_flow:
-            logger.info(f"👩‍⚕️ User chose specialist visit, analyzing flow structure...")
-            
-            # Navigate the flow structure based on the path to find specialist services
-            try:
-                # For this specific flow (option 5), specialist services might be in different places
-                # Let's look for services that should be added when specialist visit is chosen
-                
-                # Check the main flow structure for hidden specialist services
-                if "list_health_services" in generated_flow:
-                    main_services = generated_flow.get("list_health_services", [])
-                    main_uuids = generated_flow.get("list_health_servicesUUID", [])
-                    main_codes = generated_flow.get("health_service_code", [])
-                    
-                    # Look for cardiologist visit in the main services list
-                    for i, service_name in enumerate(main_services):
-                        # Look for specialist visit services (cardiologist, etc.)
-                        if any(keyword in service_name.lower() for keyword in ["visita", "cardiolog", "visit", "specialist"]):
-                            if i < len(main_uuids):
-                                service_uuid = main_uuids[i]
-                                service_code = main_codes[i] if i < len(main_codes) else ""
-                                
-                                if service_uuid not in existing_uuids:
-                                    specialist_service = HealthService(
-                                        uuid=service_uuid,
-                                        name=service_name,
-                                        code=service_code,
-                                        synonyms=[]
-                                    )
-                                    selected_services.append(specialist_service)
-                                    existing_uuids.add(service_uuid)
-                                    logger.success(f"✅ Added specialist service: {service_name}")
-                
+                logger.success(f"✅ Added additional service: {service_name} (sector: {service_sector}, code: {service_code})")
             except Exception as e:
-                logger.warning(f"Could not parse specialist services from flow: {e}")
-        
+                logger.error(f"❌ Failed to create HealthService for '{service_name}': {e}")
+
+        # Log specialist visit flag (LLM should have already included them in additional_services with proper sector)
+        if specialist_visit_chosen:
+            logger.info(f"👩‍⚕️ User chose specialist visit - should be included in additional_services above")
+
         # Ensure we have at least the original service
         if not selected_services:
             logger.warning("⚠️  No services in final selection, this shouldn't happen")

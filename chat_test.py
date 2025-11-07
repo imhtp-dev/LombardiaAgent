@@ -15,6 +15,7 @@ Usage:
     python chat_test.py                              # Start with greeting (full flow)
     python chat_test.py --start-node email           # Start with email collection
     python chat_test.py --start-node booking         # Start with booking flow
+    python chat_test.py --start-node cerba_card      # Start from Cerba Card question (auto-filled data)
     python chat_test.py --port 8081                  # Use custom port
 
     # Test EXISTING patient flow (simulates Talkdesk caller ID + DOB from database)
@@ -919,12 +920,14 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("✅ NO STT/TTS - Pure text mode for fast testing!")
 
         # Create pipeline task
+        # CRITICAL: Disable idle_timeout for text-only chat to prevent premature disconnections
+        # In text mode, there are no BotSpeakingFrame events, so idle detection triggers incorrectly
         task = PipelineTask(
             pipeline,
             params=PipelineParams(
                 allow_interruptions=False,  # Not needed for text
                 enable_transcriptions=False,  # No audio transcription
-                idle_timeout=600.0,  # 10 minutes idle timeout (plenty of time for typing)
+                # idle_timeout=None,  # Disable idle timeout entirely for text chat
             )
         )
 
@@ -1062,6 +1065,7 @@ Examples:
   python chat_test.py                       # Full flow (greeting)
   python chat_test.py --start-node email    # Start with email collection
   python chat_test.py --start-node booking  # Start with booking flow
+  python chat_test.py --start-node cerba_card # Start from Cerba Card (auto-filled)
   python chat_test.py --port 8081           # Use custom port
         """
     )
@@ -1069,7 +1073,7 @@ Examples:
     parser.add_argument(
         "--start-node",
         default="greeting",
-        choices=["greeting", "email", "name", "phone", "fiscal_code", "booking", "slot_selection"],
+        choices=["greeting", "email", "name", "phone", "fiscal_code", "booking", "slot_selection", "cerba_card"],
         help="Starting flow node (default: greeting for full flow)"
     )
 

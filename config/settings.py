@@ -114,7 +114,17 @@ class Settings:
     def language_config(self) -> str:
         """Global language instruction for prompts"""
         return "You need to speak Italian."
-    
+
+    @property
+    def llm_interpretation_config(self) -> Dict[str, Any]:
+        """LLM interpretation configuration for sorting API analysis"""
+        return {
+            "model": "gpt-4o-mini",  # Fast and cost-effective
+            "temperature": 0.1,  # Low temperature for consistent, deterministic logic
+            "max_tokens": 500,  # Enough for reasoning and analysis
+            "timeout": 15.0  # 15 second timeout for reliability
+        }
+
     def _validate_required_keys(self) -> None:
         """Validate that all required API keys are present"""
         required_keys = [
