@@ -30,41 +30,7 @@ def get_token():
     return token
 
 
-'''def aggiungi_unico(lista, valore):
-    """
-    Aggiunge un valore alla lista solo se:
-    1. Non è la prima chiamata della funzione (ignora il primo valore)
-    2. Il valore non è già presente nella lista (evita duplicati)
-    """
-    # Usa un attributo della funzione per tracciare se è la prima chiamata
-    if not hasattr(aggiungi_unico, 'prima_chiamata'):
-        aggiungi_unico.prima_chiamata = True
-    
-    if aggiungi_unico.prima_chiamata:
-        # Ignora il primo valore
-        aggiungi_unico.prima_chiamata = False
-    else:
-        # Aggiunge solo se il valore non è già presente
-        if valore not in lista:
-            lista.append(valore)'''
-'''def aggiungi_unico(lista, valore, prestazione_principale):
-    """
-    Aggiunge un valore alla lista solo se:
-    1. Non è la prima chiamata della funzione (ignora il primo valore)
-    2. Il valore non è già presente nella lista (evita duplicati)
-    3. Il valore non è uguale alla prestazione principale
-    """
-    # Usa un attributo della funzione per tracciare se è la prima chiamata
-    if not hasattr(aggiungi_unico, 'prima_chiamata'):
-        aggiungi_unico.prima_chiamata = True
-    
-    if aggiungi_unico.prima_chiamata:
-        # Ignora il primo valore
-        aggiungi_unico.prima_chiamata = False
-    else:
-        # Aggiunge solo se il valore non è già presente e non è la prestazione principale
-        if valore not in lista and valore != prestazione_principale:
-            lista.append(valore)'''
+
 def aggiungi_unico(lista, valore, prestazione_principale):
     """
     Aggiunge un valore alla lista solo se:
@@ -91,8 +57,11 @@ def genera_flow(hc_uuid,medical_exam_id):
         'health_centers':hc_uuid, # I'll pass you a multi-health center so that you can recover the services that can be performed in these centers.
     }
     response = requests.get(api_url,headers=headers,params=request_data)#,params=request_data
+    #print(request_data,medical_exam_id)
     if response.status_code == 200:
         data = response.json()
+        formatted_json = json.dumps(data, indent=4)
+        #print(formatted_json)
         #print(data)
         resp=data
         uuid = data['uuid']
@@ -224,12 +193,12 @@ def genera_flow(hc_uuid,medical_exam_id):
                     #return resp
             elif medical_examination==False:
                 if requires_prescription==True:#Esame Strumentale con prescrizione
+                    #print("OK")
                     lungo=len(accessorie)
                     lungo_b=len(prima_visita)
                     voce="optionals"
                     voce_a="opinions"
                     voce_b="prescriptions"
-                    voce_b=""
                     sector_a=[]
                     sector_b=[]
                     sector_c=[]
@@ -312,44 +281,23 @@ def genera_flow(hc_uuid,medical_exam_id):
                         resp=json.dumps(dizionario, indent=4, ensure_ascii=False)
        
         return resp
+    
+##########Health Center############
+# Tradate # c5535638-6c18-444c-955d-89139d8276be
+################################################
+##Visita Ortopedica Prima Visita##
+# 1cc793b7-4a8b-4c54-ac09-3c7ca7e5a168
+##################################
+# RX Caviglia##
+# 12826519-dd21-4e34-900e-ee8d471974a8
+######################################
+# ECG##
+# 44896b8d-dee0-4b2e-8aa2-25f25606583e
+#######################################
+# Ecografia Addome Superiore
+# 12826519-dd21-4e34-900e-ee8d471974a8
+########################################
+#risu=genera_flow("c5535638-6c18-444c-955d-89139d8276be","9a93d65f-396a-45e4-9284-94481bdd2b51")
+#print(risu)
 
-token=get_token()
-PRESTAZIONI = [
-    {
-        "hs_uuid": "957f9311d-de7d-4da3-8d37-09fdc049daac",
-        "health_service_name": "RM Spalla Destra Senza contrasto"
-    },
-    {
-        "hs_uuid": "1cc793b7-4a8b-4c54-ac09-3c7ca7e5a168",
-        "health_service_name": "Visita Ortopedica Prima Visita"
-    },
-    {
-        "hs_uuid": "b7079a4d-e772-4b2c-8ae4-f399f425db19",
-        "health_service_name": "Visita Ortopedica Controllo"
-    },
-    {
-        "hs_uuid": "b5928e02-99c5-45ab-aa6c-51e57fca3fd2",
-        "health_service_name": "Visita Pneumologica Prima Visita"
-    },
-    {
-        "hs_uuid": "89790f28-7579-4242-99f3-5c87c638d962",
-        "health_service_name": "Visita Pneumologica Controllo"
-    },
-    {
-        "hs_uuid": "89ede50a-acf1-4399-9813-7ba17f336abc",# Don't use this Problem with this Health Service I must check it with Cerba Team
-        "health_service_name": "Seduta di Agopuntura"# Don't use this Problem with this Health Service I must check it with Cerba Team
-    },
-    {
-        "hs_uuid": "12826519-dd21-4e34-900e-ee8d471974a8",
-        "health_service_name": "Ecografia Addome Superiore"
-    },
-    {
-        "hs_uuid": "44896b8d-dee0-4b2e-8aa2-25f25606583e",
-        "health_service_name": "ECG"
-    }
-]
-health_service_uuid = PRESTAZIONI[0]["hs_uuid"]
-health_center_uuid=['c48ff93f-1c88-4621-9cd5-31ad87e83e48', '6cff89d8-1f40-4eb8-bed7-f36e94a3355c', 'c8a339e0-95c8-430b-ace6-640f3fd49ab1']
-resp=genera_flow(health_center_uuid,health_service_uuid)
-#print(resp)
 

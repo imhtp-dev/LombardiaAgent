@@ -12,6 +12,8 @@ from pipecat_flows import FlowManager, NodeConfig, FlowArgs
 from services.cerba_api import cerba_api
 from services.slotAgenda import list_slot, create_slot, delete_slot
 from models.requests import HealthService, HealthCenter
+from services.llm_interpretation import interpret_sorting_scenario
+from config.settings import settings
 
 
 async def search_final_centers_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -162,15 +164,222 @@ async def select_center_and_book(args: FlowArgs, flow_manager: FlowManager) -> T
     
     # Store selected center
     flow_manager.state["selected_center"] = selected_center
-    
+
     logger.info(f"🏥 Center selected: {selected_center.name} in {selected_center.city}")
-    
+
+    # ============================================================================
+    # SORTING API INTEGRATION
+    # Call the sorting API to get optimized service packages for this center
+    # ============================================================================
+
+    from services.sorting_api import call_sorting_api
+
+    # Get required data from state
+    selected_services = flow_manager.state.get("selected_services", [])
+    patient_gender = flow_manager.state.get("patient_gender", "m")
+    patient_dob = flow_manager.state.get("patient_dob", "")
+
+    # Format DOB for API (remove dashes if present: "1980-04-13" -> "19800413")
+    dob_formatted = patient_dob.replace("-", "") if patient_dob else "19800413"
+
+    logger.info(f"🔄 Initiating sorting API call:")
+    logger.info(f"   Center: {selected_center.name} ({selected_center.uuid})")
+    logger.info(f"   Services: {len(selected_services)}")
+    logger.info(f"   Gender: {patient_gender}, DOB: {dob_formatted}")
+
+    # Log service details
+    for idx, service in enumerate(selected_services):
+        logger.debug(f"   [{idx}] {service.name} (sector: {service.sector})")
+
+    try:
+        # Call sorting API
+        sorting_result = await call_sorting_api(
+            health_center_uuid=selected_center.uuid,
+            gender=patient_gender,
+            date_of_birth=dob_formatted,
+            selected_services=selected_services
+        )
+
+        if sorting_result.get("success"):
+            # Store sorting API response in state for later use
+            flow_manager.state["sorting_api_response"] = sorting_result["data"]
+            flow_manager.state["sorting_api_package_detected"] = sorting_result.get("package_detected", False)
+
+            # ================================================================
+            # PARSE SORTING API RESPONSE INTO SERVICE GROUPS
+            # ================================================================
+
+            api_response_data = sorting_result["data"]
+
+            try:
+                logger.info("🔄 Parsing sorting API response into service groups...")
+
+                service_groups = []
+
+                if not api_response_data or not isinstance(api_response_data, list):
+                    logger.error("❌ Invalid sorting API response format - expected list")
+                    raise ValueError("Invalid response format")
+
+                for group_idx, group_data in enumerate(api_response_data):
+                    if not isinstance(group_data, dict):
+                        logger.warning(f"⚠️ Group {group_idx} is not a dict, skipping")
+                        continue
+
+                    health_services = group_data.get("health_services", [])
+                    is_group = group_data.get("group", False)
+
+                    if not health_services:
+                        logger.warning(f"⚠️ Group {group_idx} has no health_services, skipping")
+                        continue
+
+                    # Create HealthService objects for each service in the group
+                    services = []
+                    for svc_idx, svc in enumerate(health_services):
+                        if not isinstance(svc, dict):
+                            logger.warning(f"⚠️ Service {svc_idx} in group {group_idx} is not a dict, skipping")
+                            continue
+
+                        service_uuid = svc.get("uuid")
+                        service_name = svc.get("name")
+                        service_code = svc.get("health_service_code", "")
+
+                        if not service_uuid or not service_name:
+                            logger.warning(f"⚠️ Service {svc_idx} missing uuid or name, skipping")
+                            continue
+
+                        try:
+                            service = HealthService(
+                                uuid=service_uuid,
+                                name=service_name,
+                                code=service_code,
+                                synonyms=[],
+                                sector="health_services"  # Sector not needed after sorting
+                            )
+                            services.append(service)
+                            logger.debug(f"   ✅ Parsed service: {service_name} ({service_uuid})")
+                        except Exception as e:
+                            logger.error(f"❌ Failed to create HealthService for {service_name}: {e}")
+                            continue
+
+                    if services:
+                        service_groups.append({
+                            "services": services,
+                            "is_group": is_group
+                        })
+                        logger.debug(f"   ✅ Added group {group_idx}: {len(services)} service(s), is_group={is_group}")
+
+                if not service_groups:
+                    logger.error("❌ No valid service groups parsed from sorting API response")
+                    raise ValueError("No valid groups")
+
+                # Log parsed groups
+                logger.info("📦 Parsed sorting API response:")
+                logger.info(f"   Total groups: {len(service_groups)}")
+                for idx, group in enumerate(service_groups):
+                    logger.info(f"   Group {idx+1}: {len(group['services'])} service(s), is_group={group['is_group']}")
+                    for svc in group['services']:
+                        logger.info(f"      - {svc.name} (UUID: {svc.uuid}, Code: {svc.code})")
+
+                # Store in state
+                flow_manager.state["service_groups"] = service_groups
+
+                # Use LLM to determine booking scenario
+                try:
+                    logger.info("🤖 Using LLM to interpret sorting API response...")
+
+                    # Get OpenAI API key
+                    openai_api_key = settings.api_keys["openai"]
+
+                    # Call LLM interpretation service
+                    llm_interpretation = await interpret_sorting_scenario(
+                        api_response_data=api_response_data,
+                        service_groups=service_groups,
+                        openai_api_key=openai_api_key
+                    )
+
+                    # Extract LLM decision
+                    booking_scenario = llm_interpretation["booking_scenario"]
+                    reasoning = llm_interpretation["reasoning"]
+                    num_appointments = llm_interpretation["num_appointments"]
+                    service_summary = llm_interpretation["service_summary"]
+
+                    # Log LLM decision
+                    logger.info("🎯 LLM INTERPRETATION RESULT:")
+                    logger.info(f"   Scenario: {booking_scenario.upper()}")
+                    logger.info(f"   Reasoning: {reasoning}")
+                    logger.info(f"   Appointments needed: {num_appointments}")
+                    logger.info(f"   Summary: {service_summary}")
+
+                    # Store LLM reasoning in state for debugging
+                    flow_manager.state["llm_interpretation_reasoning"] = reasoning
+                    flow_manager.state["llm_interpretation_summary"] = service_summary
+
+                except Exception as e:
+                    # LLM interpretation failed - raise error, no fallback
+                    logger.error(f"❌ LLM interpretation failed: {e}")
+                    from flows.nodes.completion import create_error_node
+                    return {
+                        "success": False,
+                        "message": f"Failed to interpret booking scenario: {e}"
+                    }, create_error_node("Technical issue processing your request. Please try again.")
+
+                flow_manager.state["booking_scenario"] = booking_scenario
+                flow_manager.state["current_group_index"] = 0  # Initialize for scenario 3
+
+                # Log package detection for debugging
+                if sorting_result.get("package_detected"):
+                    logger.info("🎁 === PACKAGE DETECTED ===")
+                    logger.info("   Services have been replaced with sorting API response")
+                    logger.info(f"   Original services: {sorting_result.get('original_services', [])}")
+                    logger.info(f"   Response services: {sorting_result.get('response_services', [])}")
+                else:
+                    logger.info("✅ No package detected - services confirmed as requested")
+
+                logger.success("✅ Services replaced with sorting API response")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to parse sorting API response: {e}")
+                logger.exception("Full traceback:")
+                logger.warning("⚠️ Falling back to legacy mode with original selected_services")
+                flow_manager.state["booking_scenario"] = "legacy"
+                flow_manager.state["service_groups"] = []
+
+            logger.success("✅ Sorting API call completed successfully")
+
+        else:
+            # Sorting API failed - log but continue anyway (non-blocking)
+            error_msg = sorting_result.get("error", "Unknown error")
+            status_code = sorting_result.get("status_code", "N/A")
+
+            logger.warning(f"⚠️ Sorting API call failed (non-blocking): {error_msg}")
+            logger.warning(f"   Status code: {status_code}")
+            logger.warning("   Continuing with booking flow without sorting optimization")
+
+            # Store failure info in state for debugging
+            flow_manager.state["sorting_api_error"] = error_msg
+            flow_manager.state["sorting_api_success"] = False
+
+    except Exception as e:
+        # Unexpected error calling sorting API - log but continue (non-blocking)
+        logger.error(f"❌ Unexpected error calling sorting API: {e}")
+        logger.exception("Full traceback:")
+        logger.warning("   Continuing with booking flow without sorting optimization")
+
+        # Store error in state for debugging
+        flow_manager.state["sorting_api_error"] = str(e)
+        flow_manager.state["sorting_api_success"] = False
+
+    # ============================================================================
+    # END SORTING API INTEGRATION
+    # ============================================================================
+
     from flows.nodes.booking import create_cerba_membership_node
     return {
         "success": True,
         "center_name": selected_center.name,
         "center_city": selected_center.city,
-        "center_address": selected_center.address
+        "center_address": selected_center.address,
+        "sorting_api_called": True
     }, create_cerba_membership_node()
 
 
@@ -182,13 +391,36 @@ async def check_cerba_membership_and_transition(args: FlowArgs, flow_manager: Fl
     flow_manager.state["is_cerba_member"] = is_member
     
     logger.info(f"💳 Cerba membership status: {'Member' if is_member else 'Non-member'}")
-    
+
+    # Get service name for first appointment from state
+    first_service_name = "your appointment"  # Default fallback
+
+    # Try to get service name from various state locations
+    if "service_groups" in flow_manager.state and flow_manager.state["service_groups"]:
+        service_groups = flow_manager.state["service_groups"]
+        booking_scenario = flow_manager.state.get("booking_scenario", "separate")
+
+        if booking_scenario == "separate":
+            # For separate appointments, get the first group's services
+            first_group_services = service_groups[0]["services"]
+            first_service_name = " + ".join([svc.name for svc in first_group_services])
+        elif booking_scenario in ["bundle", "combined"]:
+            # For bundle/combined, get all services in the first (and only) group
+            first_group_services = service_groups[0]["services"]
+            first_service_name = " + ".join([svc.name for svc in first_group_services])
+    elif "selected_services" in flow_manager.state and flow_manager.state["selected_services"]:
+        # Legacy fallback
+        first_service = flow_manager.state["selected_services"][0]
+        first_service_name = first_service.name
+
+    logger.info(f"📅 Asking for date/time for first appointment: {first_service_name}")
+
     from flows.nodes.booking import create_collect_datetime_node
     return {
         "success": True,
         "is_cerba_member": is_member,
         "membership_status": "member" if is_member else "non-member"
-    }, create_collect_datetime_node()
+    }, create_collect_datetime_node(first_service_name, False)
 
 
 
@@ -320,8 +552,16 @@ async def update_date_and_search_slots(args: FlowArgs, flow_manager: FlowManager
             existing_time_pref = flow_manager.state.get("time_preference", "any time")
             logger.info(f"🕐 Preserving existing time preference: {existing_time_pref}")
         else:
-            # Update time preference and time ranges
-            if time_preference == "morning":
+            # Check if this is an automatic search for 2nd+ service (separate scenario)
+            auto_start_time = flow_manager.state.get("auto_start_time")
+
+            if auto_start_time:
+                # Automatic scheduling for 2nd+ services: start from calculated time
+                flow_manager.state["start_time"] = f"{preferred_date} {auto_start_time}:00+00"
+                flow_manager.state["end_time"] = None  # No end time constraint
+                flow_manager.state["time_preference"] = f"any time from {auto_start_time} onwards"
+                logger.info(f"⏰ AUTOMATIC TIME CONSTRAINT: Starting from {auto_start_time}")
+            elif time_preference == "morning":
                 flow_manager.state["start_time"] = f"{preferred_date} 08:00:00+00"
                 flow_manager.state["end_time"] = f"{preferred_date} 12:00:00+00"
                 flow_manager.state["time_preference"] = "morning (08:00-12:00)"
@@ -349,20 +589,41 @@ async def update_date_and_search_slots(args: FlowArgs, flow_manager: FlowManager
             from flows.nodes.completion import create_error_node
             return {"success": False, "message": "Missing booking details"}, create_error_node("Missing booking details. Please start over.")
 
-        current_service_index = flow_manager.state.get("current_service_index", 0)
-        current_service = selected_services[current_service_index]
-
         # Format DOB for API
         dob_formatted = patient_dob.replace("-", "")
 
-        logger.info(f"🔍 Searching slots for {current_service.name} on {preferred_date}")
+        # Determine service UUIDs based on booking scenario (same logic as perform_slot_search_and_transition)
+        booking_scenario = flow_manager.state.get("booking_scenario", "legacy")
+        service_groups = flow_manager.state.get("service_groups", [])
+
+        if booking_scenario == "bundle":
+            all_services = service_groups[0]["services"]
+            uuid_exam = [svc.uuid for svc in all_services]
+            current_service_name = " + ".join([svc.name for svc in all_services])
+        elif booking_scenario == "combined":
+            single_service = service_groups[0]["services"][0]
+            uuid_exam = [single_service.uuid]
+            current_service_name = single_service.name
+        elif booking_scenario == "separate":
+            current_group_index = flow_manager.state.get("current_group_index", 0)
+            current_group = service_groups[current_group_index]
+            current_group_services = current_group["services"]
+            uuid_exam = [svc.uuid for svc in current_group_services]
+            current_service_name = " + ".join([svc.name for svc in current_group_services])
+        else:  # legacy
+            current_service_index = flow_manager.state.get("current_service_index", 0)
+            current_service = selected_services[current_service_index]
+            uuid_exam = [current_service.uuid]
+            current_service_name = current_service.name
+
+        logger.info(f"🔍 Searching slots for {current_service_name} on {preferred_date}")
 
         # Call list_slot directly
         from services.slotAgenda import list_slot
         slots_response = list_slot(
             health_center_uuid=selected_center.uuid,
             date_search=preferred_date,
-            uuid_exam=[current_service.uuid],
+            uuid_exam=uuid_exam,
             gender=patient_gender,
             date_of_birth=dob_formatted,
             start_time=start_time,
@@ -372,7 +633,6 @@ async def update_date_and_search_slots(args: FlowArgs, flow_manager: FlowManager
         if slots_response and len(slots_response) > 0:
             # Store available slots
             flow_manager.state["available_slots"] = slots_response
-            flow_manager.state["current_service_index"] = current_service_index
 
             logger.success(f"✅ Found {len(slots_response)} available slots for {preferred_date}")
 
@@ -382,20 +642,30 @@ async def update_date_and_search_slots(args: FlowArgs, flow_manager: FlowManager
             user_preferred_date = flow_manager.state.get("preferred_date")
             time_preference_state = flow_manager.state.get("time_preference", "any time")
 
+            # Create display service object
+            if booking_scenario != "legacy":
+                display_service = type('DisplayService', (), {
+                    'name': current_service_name,
+                    'uuid': uuid_exam[0] if len(uuid_exam) == 1 else ','.join(uuid_exam),
+                    'code': 'MULTI' if len(uuid_exam) > 1 else 'N/A'
+                })()
+            else:
+                display_service = current_service
+
             return {
                 "success": True,
                 "slots_count": len(slots_response),
-                "service_name": current_service.name,
+                "service_name": current_service_name,
                 "message": f"Found {len(slots_response)} available slots for {preferred_date}"
             }, create_slot_selection_node(
                 slots=slots_response,
-                service=current_service,
+                service=display_service,
                 is_cerba_member=flow_manager.state.get("is_cerba_member", False),
                 user_preferred_date=user_preferred_date,
                 time_preference=time_preference_state
             )
         else:
-            error_message = f"No available slots found for {current_service.name} on {preferred_date}"
+            error_message = f"No available slots found for {current_service_name} on {preferred_date}"
             logger.warning(f"⚠️ {error_message}")
 
             # Go to no slots node with suggestion for different dates
@@ -493,29 +763,154 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
 
         # Format date of birth for API (remove dashes)
         dob_formatted = patient_dob.replace("-", "")
-        
-        logger.info(f"🔍 Searching slots for {current_service.name} at {selected_center.name}")
-        logger.info(f"🕐 Time preference: {time_preference}")
+
+        # === STEP 2.1: Determine booking scenario and service UUIDs ===
+        logger.info("=" * 80)
+        logger.info("🔍 SLOT SEARCH: Determining booking scenario...")
+        logger.info("=" * 80)
+
+        booking_scenario = flow_manager.state.get("booking_scenario", "legacy")
+        service_groups = flow_manager.state.get("service_groups", [])
+
+        logger.info(f"📋 Booking Scenario: {booking_scenario}")
+        logger.info(f"📊 Service Groups Count: {len(service_groups)}")
+
+        # Determine uuid_exam and service_name based on scenario
+        uuid_exam = []
+        current_service_name = ""
+
+        if booking_scenario == "bundle":
+            # Scenario 1: Multiple services bundled together (group=true)
+            # Pass ALL UUIDs from the single group as a list
+            logger.info("🎁 BUNDLE SCENARIO: Multiple services bundled together")
+
+            if not service_groups or len(service_groups) == 0:
+                logger.error("❌ Bundle scenario but no service groups found!")
+                raise ValueError("Bundle scenario but no service groups")
+
+            all_services = service_groups[0]["services"]
+            uuid_exam = [svc.uuid for svc in all_services]
+            current_service_name = " + ".join([svc.name for svc in all_services])
+
+            logger.info(f"   Services in bundle: {len(all_services)}")
+            for idx, svc in enumerate(all_services):
+                logger.info(f"   [{idx+1}] {svc.name} (UUID: {svc.uuid})")
+            logger.info(f"   UUID list for API: {uuid_exam}")
+
+        elif booking_scenario == "combined":
+            # Scenario 2: Services combined into single service (single group, group=false)
+            # Pass single UUID
+            logger.info("🔗 COMBINED SCENARIO: Services combined into one service")
+
+            if not service_groups or len(service_groups) == 0:
+                logger.error("❌ Combined scenario but no service groups found!")
+                raise ValueError("Combined scenario but no service groups")
+
+            single_service = service_groups[0]["services"][0]
+            uuid_exam = [single_service.uuid]
+            current_service_name = single_service.name
+
+            logger.info(f"   Combined service: {single_service.name}")
+            logger.info(f"   UUID: {single_service.uuid}")
+
+        elif booking_scenario == "separate":
+            # Scenario 3: Multiple groups, each needs separate booking (all group=false)
+            # Pass current group's UUIDs
+            logger.info("📦 SEPARATE SCENARIO: Multiple groups, booking separately")
+
+            current_group_index = flow_manager.state.get("current_group_index", 0)
+            logger.info(f"   Current group index: {current_group_index} of {len(service_groups)}")
+
+            if current_group_index >= len(service_groups):
+                logger.error(f"❌ Invalid group index {current_group_index} for {len(service_groups)} groups!")
+                raise ValueError("Invalid group index")
+
+            current_group = service_groups[current_group_index]
+            current_group_services = current_group["services"]
+            uuid_exam = [svc.uuid for svc in current_group_services]
+            current_service_name = " + ".join([svc.name for svc in current_group_services])
+
+            logger.info(f"   Services in current group: {len(current_group_services)}")
+            for idx, svc in enumerate(current_group_services):
+                logger.info(f"   [{idx+1}] {svc.name} (UUID: {svc.uuid})")
+            logger.info(f"   UUID list for API: {uuid_exam}")
+
+        else:  # legacy fallback
+            # Legacy mode: Use original selected_services approach (pre-sorting API)
+            logger.info("🔄 LEGACY SCENARIO: Using original selected_services")
+            logger.warning("⚠️  Sorting API was not used or failed - falling back to legacy mode")
+
+            if not selected_services or len(selected_services) == 0:
+                logger.error("❌ Legacy mode but no selected_services found!")
+                raise ValueError("No services available for booking")
+
+            current_service = selected_services[current_service_index]
+            uuid_exam = [current_service.uuid]
+            current_service_name = current_service.name
+
+            logger.info(f"   Service: {current_service.name}")
+            logger.info(f"   UUID: {current_service.uuid}")
+
+        logger.info(f"🎯 Final slot search parameters:")
+        logger.info(f"   Service(s): {current_service_name}")
+        logger.info(f"   UUID(s): {uuid_exam}")
+        logger.info(f"   Date: {preferred_date}")
+        logger.info(f"   Time preference: {time_preference}")
+        logger.info(f"   Health Center: {selected_center.name}")
         logger.info(f"👤 Patient: Gender={patient_gender}, DOB={dob_formatted}")
-        
-        # Call list_slot with optional start/end times
+        logger.info("=" * 80)
+
+        # === STEP 2.2: Call slot search API with determined UUIDs ===
+        logger.info(f"🔍 Calling list_slot API...")
+
         slots_response = list_slot(
             health_center_uuid=selected_center.uuid,
             date_search=preferred_date,
-            uuid_exam=[current_service.uuid],  # Only current service
+            uuid_exam=uuid_exam,  # List of 1 or more UUIDs based on scenario
             gender=patient_gender,
             date_of_birth=dob_formatted,
             start_time=start_time,  # Will be None if no time preference
             end_time=end_time       # Will be None if no time preference
         )
-        
+
+        # CRITICAL: Client-side filtering if start_time constraint exists
+        # The API doesn't always respect start_time parameter, so we filter client-side
+        if start_time and slots_response:
+            from datetime import datetime
+            original_count = len(slots_response)
+
+            # Parse constraint time
+            try:
+                # start_time format: "2025-11-17 14:40:00+00"
+                constraint_dt = datetime.fromisoformat(start_time.replace('+00', '+00:00'))
+
+                # Filter slots: only keep slots that start at or after the constraint time
+                filtered_slots = []
+                for slot in slots_response:
+                    slot_start = slot.get("start_time", "")
+                    if slot_start:
+                        slot_dt = datetime.fromisoformat(slot_start)
+                        if slot_dt >= constraint_dt:
+                            filtered_slots.append(slot)
+
+                slots_response = filtered_slots
+                logger.info(f"🕐 CLIENT-SIDE TIME FILTER:")
+                logger.info(f"   Constraint: slots must start at or after {start_time}")
+                logger.info(f"   Original slots: {original_count}")
+                logger.info(f"   Filtered slots: {len(slots_response)}")
+                logger.info(f"   Removed: {original_count - len(slots_response)} slots before constraint time")
+            except Exception as e:
+                logger.error(f"❌ Failed to apply client-side time filter: {e}")
+                # Continue with unfiltered results if filtering fails
+
         if slots_response and len(slots_response) > 0:
-            # Store available slots
+            # Store available slots and current service name
             flow_manager.state["available_slots"] = slots_response
             flow_manager.state["current_service_index"] = current_service_index
-            
-            logger.success(f"✅ Found {len(slots_response)} available slots")
-            
+            flow_manager.state["current_service_name"] = current_service_name  # Store for display
+
+            logger.success(f"✅ Found {len(slots_response)} available slots for {current_service_name}")
+
             from flows.nodes.booking import create_slot_selection_node
 
             # Pass user preferences for smart filtering
@@ -530,13 +925,28 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
             logger.info(f"   - first_available_mode: {first_available_mode}")
             logger.info(f"   - total_slots: {len(slots_response)}")
 
+            # === STEP 2.3: Create service object for display ===
+            # For bundle/combined/separate: create a dummy service object with combined name
+            # For legacy: use the existing current_service
+            if booking_scenario != "legacy":
+                # Create a minimal service-like dict for slot selection node
+                display_service = type('DisplayService', (), {
+                    'name': current_service_name,
+                    'uuid': uuid_exam[0] if len(uuid_exam) == 1 else ','.join(uuid_exam),
+                    'code': 'MULTI' if len(uuid_exam) > 1 else service_groups[0]["services"][0].code if service_groups else 'N/A'
+                })()
+                logger.info(f"📋 Created display service object: {display_service.name}")
+            else:
+                display_service = current_service
+                logger.info(f"📋 Using legacy service object: {display_service.name}")
+
             # CACHE ALL SLOTS FOR "SHOW MORE" REQUESTS (Hybrid First Available)
             if first_available_mode:
                 flow_manager.state["cached_all_slots"] = slots_response
                 flow_manager.state["cached_search_params"] = {
                     "preferred_date": user_preferred_date,
                     "time_preference": time_preference,
-                    "service": current_service.model_dump() if hasattr(current_service, 'model_dump') else current_service.__dict__,
+                    "service": {"name": current_service_name, "uuid": uuid_exam},  # Store as dict
                     "is_cerba_member": flow_manager.state.get("is_cerba_member", False)
                 }
                 logger.info(f"💾 CACHED: Stored {len(slots_response)} slots in state for 'show more' requests")
@@ -544,27 +954,38 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
             return {
                 "success": True,
                 "slots_count": len(slots_response),
-                "service_name": current_service.name,
+                "service_name": current_service_name,
                 "time_preference": time_preference,
                 "message": "Slot search completed"
             }, create_slot_selection_node(
                 slots=slots_response,
-                service=current_service,
+                service=display_service,
                 is_cerba_member=flow_manager.state.get("is_cerba_member", False),
                 user_preferred_date=user_preferred_date,
                 time_preference=time_preference,
                 first_available_mode=first_available_mode
             )
         else:
-            error_message = f"No available slots found for {current_service.name} on {preferred_date}"
+            error_message = f"No available slots found for {current_service_name} on {preferred_date}"
             if time_preference != "any time":
                 error_message += f" for {time_preference}"
-            
+
+            logger.warning(f"⚠️ {error_message}")
+
+            # Check if this is a multi-service booking (2nd+ appointment)
+            first_appointment_date = None
+            if booking_scenario == "separate" and flow_manager.state.get("current_group_index", 0) > 0:
+                # This is 2nd+ service - get first appointment date constraint
+                booked_slots = flow_manager.state.get("booked_slots", [])
+                if booked_slots:
+                    first_appointment_date = booked_slots[0]["start_time"][:10]  # Extract YYYY-MM-DD
+                    logger.info(f"🚫 DATE CONSTRAINT: 2nd appointment must be on/after {first_appointment_date}")
+
             from flows.nodes.booking import create_no_slots_node
             return {
                 "success": False,
                 "message": error_message
-            }, create_no_slots_node(preferred_date, time_preference)
+            }, create_no_slots_node(preferred_date, time_preference, first_appointment_date)
             
     except Exception as e:
         logger.error(f"Slot search error: {e}")
@@ -731,11 +1152,19 @@ async def select_slot_and_book(args: FlowArgs, flow_manager: FlowManager) -> Tup
     logger.info(f"🔍 DEBUG: is_cerba_member = {is_cerba_member}")
     logger.info(f"🔍 DEBUG: health_services = {health_services}")
 
+    # CRITICAL: Extract and store price for this slot
+    slot_price = 0
     if health_services:
         service = health_services[0]
-        price = service.get("cerba_card_price") if is_cerba_member else service.get("price")
-        flow_manager.state["slot_price"] = price
-        logger.info(f"🔍 DEBUG: Stored slot_price = {price}")
+        slot_price = service.get("cerba_card_price") if is_cerba_member else service.get("price")
+        if slot_price is None:
+            # Fallback: try to get price (non-Cerba) if cerba_card_price is None
+            slot_price = service.get("price", 0)
+        logger.info(f"💰 Price from slot health_services: {slot_price}")
+
+    # Store price in state for booking
+    flow_manager.state["slot_price"] = slot_price
+    logger.info(f"💰 Stored slot_price in state: {slot_price}")
 
     logger.info(f"🎯 Slot selected: {selected_slot['start_time']} to {selected_slot['end_time']}")
     logger.info(f"🔍 DEBUG: === SLOT SELECTION COMPLETED SUCCESSFULLY ===")
@@ -871,28 +1300,159 @@ async def perform_slot_booking_and_transition(args: FlowArgs, flow_manager: Flow
         status_code, slot_uuid, created_at = create_slot(start_slot, end_slot, providing_entity_availability)
 
         if status_code == 200 or status_code == 201:
-            
+
             # Store slot reservation information
             if "booked_slots" not in flow_manager.state:
                 flow_manager.state["booked_slots"] = []
-            
+
+            # Get the current service name (which may be combined for bundle/separate scenarios)
+            current_service_name = flow_manager.state.get("current_service_name", "")
+            if not current_service_name:
+                # Fallback to legacy behavior
+                current_service_name = selected_services[current_service_index].name if selected_services else "Service"
+
+            logger.info(f"📝 Storing booked slot: {current_service_name} at {start_time}")
+
             flow_manager.state["booked_slots"].append({
                 "slot_uuid": slot_uuid,
-                "service_name": selected_services[current_service_index].name,
+                "service_name": current_service_name,  # Use combined name for bundle/separate
                 "start_time": start_time,
                 "end_time": end_time,
                 "price": flow_manager.state.get("slot_price", 0)
             })
-            
+
             logger.success(f"✅ Slot reserved successfully: {slot_uuid}")
-            
-            # Check if there are more services to book
-            if current_service_index + 1 < len(selected_services):
+
+            # === STEP 3.1: Check for multi-group booking (Scenario 3: Separate) ===
+            logger.info("=" * 80)
+            logger.info("🔍 BOOKING COMPLETION: Checking for more groups to book...")
+            logger.info("=" * 80)
+
+            booking_scenario = flow_manager.state.get("booking_scenario", "legacy")
+            service_groups = flow_manager.state.get("service_groups", [])
+            current_group_index = flow_manager.state.get("current_group_index", 0)
+
+            logger.info(f"📋 Booking Scenario: {booking_scenario}")
+            logger.info(f"📊 Total Service Groups: {len(service_groups)}")
+            logger.info(f"📍 Current Group Index: {current_group_index}")
+
+            # Scenario 3 (Separate): Check if more groups remain
+            if booking_scenario == "separate" and current_group_index + 1 < len(service_groups):
+                # More groups to book - automatically proceed with next service
+                next_group_index = current_group_index + 1
+                flow_manager.state["current_group_index"] = next_group_index
+
+                next_group = service_groups[next_group_index]
+                next_group_services = next_group["services"]
+                next_group_service_names = " + ".join([svc.name for svc in next_group_services])
+
+                total_groups = len(service_groups)
+                progress_text = f"Appointment {next_group_index + 1} of {total_groups}"
+
+                logger.info(f"📦 MULTI-GROUP BOOKING: Moving to next group")
+                logger.info(f"   Next group index: {next_group_index}")
+                logger.info(f"   Next group services: {next_group_service_names}")
+                logger.info(f"   Progress: {progress_text}")
+                logger.info(f"   Remaining groups: {total_groups - next_group_index}")
+
+                # Get the first booked slot to calculate automatic date/time
+                booked_slots = flow_manager.state.get("booked_slots", [])
+                if booked_slots:
+                    first_slot = booked_slots[0]
+                    first_slot_end_time = first_slot.get("end_time")  # UTC time string
+
+                    # Calculate automatic date/time: same date, +1 hour from first service end
+                    try:
+                        from datetime import datetime, timedelta
+                        from zoneinfo import ZoneInfo
+
+                        # Parse first service end time (UTC)
+                        first_end_dt = datetime.fromisoformat(first_slot_end_time.replace('Z', '+00:00'))
+
+                        # Add 1 hour buffer
+                        auto_start_dt = first_end_dt + timedelta(hours=1)
+
+                        # Store automatic date/time in state for slot search
+                        auto_date = auto_start_dt.strftime("%Y-%m-%d")
+                        auto_time = auto_start_dt.strftime("%H:%M")
+
+                        # Convert to Italian time for user display
+                        italian_tz = ZoneInfo("Europe/Rome")
+                        auto_start_italian = auto_start_dt.astimezone(italian_tz)
+                        auto_time_italian = auto_start_italian.strftime("%H:%M")
+
+                        flow_manager.state["auto_date"] = auto_date
+                        flow_manager.state["auto_start_time"] = auto_time
+                        flow_manager.state["preferred_date"] = auto_date  # For slot search
+                        flow_manager.state["time_preference"] = "any"  # Search any time after auto start
+
+                        # CRITICAL: Set start_time in the correct format for the slot API
+                        flow_manager.state["start_time"] = f"{auto_date} {auto_time}:00+00"
+                        flow_manager.state["end_time"] = None  # No end time constraint
+
+                        # CRITICAL FIX: Update pending_slot_search_params with the new start_time constraint
+                        # This ensures perform_slot_search_and_transition uses the updated time constraint
+                        if "pending_slot_search_params" in flow_manager.state:
+                            flow_manager.state["pending_slot_search_params"]["start_time"] = f"{auto_date} {auto_time}:00+00"
+                            flow_manager.state["pending_slot_search_params"]["end_time"] = None
+                            flow_manager.state["pending_slot_search_params"]["preferred_date"] = auto_date
+                            logger.info(f"   ✅ Updated pending_slot_search_params with time constraint")
+
+                        logger.info(f"⏰ AUTOMATIC SCHEDULING:")
+                        logger.info(f"   First service ended at: {first_slot_end_time}")
+                        logger.info(f"   Auto date: {auto_date}")
+                        logger.info(f"   Auto start time (UTC): {auto_time}")
+                        logger.info(f"   Auto start time (Italian): {auto_time_italian}")
+                        logger.info(f"   ✅ Set start_time constraint: {auto_date} {auto_time}:00+00")
+                        logger.info("=" * 80)
+
+                    except Exception as e:
+                        logger.error(f"❌ Failed to calculate automatic date/time: {e}")
+                        # Fallback: use first service date
+                        auto_date = first_slot.get("start_time", "").split("T")[0]
+                        flow_manager.state["auto_date"] = auto_date
+                        flow_manager.state["preferred_date"] = auto_date
+                        flow_manager.state["time_preference"] = "any"
+
+                # Clear slot-related state for next booking
+                flow_manager.state.pop("available_slots", None)
+                flow_manager.state.pop("cached_all_slots", None)
+                flow_manager.state.pop("cached_search_params", None)
+                flow_manager.state.pop("first_available_mode", None)
+
+                # Create automatic slot search node (skip date/time collection)
+                from flows.nodes.booking import create_automatic_slot_search_node
+
+                # Enhanced user message with clear service indicators
+                just_booked_ordinal = current_group_index + 1  # The appointment we just booked (1-based)
+                next_appointment_ordinal = next_group_index + 1  # The appointment we're about to book (1-based)
+                user_message = f"Perfect! Appointment {just_booked_ordinal} of {total_groups} has been successfully booked: {current_service_name}. Now booking appointment {next_appointment_ordinal} of {total_groups}: {next_group_service_names}. Searching for available times on the same day, starting 1 hour after your first appointment."
+
+                return {
+                    "success": True,
+                    "booking_id": slot_uuid,
+                    "has_more_groups": True,
+                    "next_group_services": next_group_service_names,
+                    "progress": progress_text,
+                    "current_group": next_group_index + 1,
+                    "total_groups": total_groups,
+                    "message": user_message
+                }, create_automatic_slot_search_node(
+                    service_name=next_group_service_names,
+                    tts_message=user_message
+                )
+
+            # Legacy scenario: Check if there are more services to book (old behavior)
+            elif booking_scenario == "legacy" and current_service_index + 1 < len(selected_services):
                 # More services to book - continue with slot creation for next service
                 flow_manager.state["current_service_index"] = current_service_index + 1
                 next_service = selected_services[current_service_index + 1]
 
-                from flows.nodes.booking import create_collect_datetime_node_for_service
+                logger.info(f"🔄 LEGACY: Moving to next service")
+                logger.info(f"   Next service: {next_service.name}")
+                logger.info(f"   Remaining services: {len(selected_services) - current_service_index - 1}")
+
+                from flows.nodes.booking import create_collect_datetime_node
                 return {
                     "success": True,
                     "booking_id": slot_uuid,
@@ -900,10 +1460,12 @@ async def perform_slot_booking_and_transition(args: FlowArgs, flow_manager: Flow
                     "has_more_services": True,
                     "next_service": next_service.name,
                     "remaining_services": len(selected_services) - current_service_index - 1
-                }, create_collect_datetime_node_for_service(next_service.name, True)  # Ask for time for next service
+                }, create_collect_datetime_node(next_service.name, True)  # Ask for time for next service
+
             else:
-                # All services have slots reserved - show booking summary
-                logger.info(f"🎯 Slot reserved successfully, showing booking summary")
+                # All groups/services booked - show booking summary
+                logger.info(f"🎯 All bookings completed, showing booking summary")
+                logger.info("=" * 80)
 
                 # Get required data for booking summary
                 selected_services = flow_manager.state.get("selected_services", [])

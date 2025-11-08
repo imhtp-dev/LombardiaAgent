@@ -73,7 +73,8 @@ class LocalDataService:
                     uuid=service_data["uuid"],
                     name=service_data["name"],
                     code=service_data["code"],
-                    synonyms=service_data.get("synonyms", [])
+                    synonyms=service_data.get("synonyms", []),
+                    sector="health_services"  # Primary services are always in health_services sector
                 )
                 services.append(service)
 

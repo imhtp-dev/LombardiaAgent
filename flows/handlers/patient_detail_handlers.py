@@ -6,7 +6,6 @@ from typing import Dict, Any, Tuple
 from loguru import logger
 
 from pipecat_flows import FlowManager, NodeConfig, FlowArgs
-from services.fiscal_code_generator import fiscal_code_generator
 from services.call_logger import call_logger
 from services.sms_service import send_booking_confirmation_sms
 
@@ -168,13 +167,30 @@ async def collect_phone_and_transition(args: FlowArgs, flow_manager: FlowManager
 
     logger.info(f"📞 Patient phone collected: {phone_clean}")
 
-    # Go to phone confirmation
-    from flows.nodes.patient_details import create_confirm_phone_node
-    return {
-        "success": True,
-        "phone": phone_clean,
-        "message": "Phone number collected successfully"
-    }, create_confirm_phone_node(phone_clean)
+    # CRITICAL: Check if user confirmed using caller phone (said "yes")
+    # If YES → skip phone confirmation and go directly to email (consistent with patient lookup flow)
+    # If NO (provided different phone) → go to phone confirmation
+    user_confirmed_caller_phone = phone in ["yes", "si", "sì", "correct", "okay", "ok", "va bene"] and caller_phone_from_talkdesk
+
+    if user_confirmed_caller_phone:
+        # User confirmed caller phone - skip confirmation, go directly to email
+        logger.info(f"✅ User confirmed caller phone - skipping confirmation, going to email collection")
+        from flows.nodes.patient_details import create_collect_email_node
+        return {
+            "success": True,
+            "phone": phone_clean,
+            "message": "Phone number confirmed (caller phone)",
+            "skipped_confirmation": True
+        }, create_collect_email_node()
+    else:
+        # User provided different phone - need confirmation
+        logger.info(f"📞 User provided different phone - going to confirmation node")
+        from flows.nodes.patient_details import create_confirm_phone_node
+        return {
+            "success": True,
+            "phone": phone_clean,
+            "message": "Phone number collected successfully"
+        }, create_confirm_phone_node(phone_clean)
 
 
 async def confirm_phone_and_transition(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:

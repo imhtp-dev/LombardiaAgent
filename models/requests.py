@@ -26,6 +26,7 @@ class HealthService(BaseModel):
     name: str
     code: str
     synonyms: List[str] = Field(default_factory=list)
+    sector: str = Field(..., description="Service sector: health_services, prescriptions, preliminary_visits, optionals, opinions")
 
 class HealthCenter(BaseModel):
     """Model for health center data"""
