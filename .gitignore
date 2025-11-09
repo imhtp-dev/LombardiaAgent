@@ -93,6 +93,7 @@ dmypy.json
 .pyre/
 .pytype/
 cython_debug/
+BackUp.md
 .ipynb_checkpoints
 
 # Pipecat cloud

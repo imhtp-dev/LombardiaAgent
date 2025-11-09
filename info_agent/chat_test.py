@@ -44,7 +44,7 @@ load_dotenv(override=True)
 
 
 class TextInputProcessor(FrameProcessor):
-    """Converts text messages to TranscriptionFrames for the pipeline"""
+   
     
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -62,7 +62,7 @@ class TextInputProcessor(FrameProcessor):
 
 
 class TextOutputProcessor(FrameProcessor):
-    """Captures LLM output and sends to browser via WebSocket"""
+   
     
     def __init__(self, websocket: WebSocket):
         super().__init__()
@@ -107,7 +107,7 @@ class TextOutputProcessor(FrameProcessor):
 
 
 class TextTransportSimulator:
-    """Simulates transport layer for text-only testing"""
+  
     
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
@@ -586,14 +586,14 @@ async def websocket_endpoint(websocket: WebSocket):
     task = None
     
     try:
-        # Create LLM and context aggregator (no STT/TTS)
+    
         llm = create_llm_service()
         context_aggregator = create_context_aggregator(llm)
         
         # Create text transport simulator
         transport = TextTransportSimulator(websocket)
         
-        # Create pipeline (text-only, no STT/TTS)
+       
         pipeline = Pipeline([
             transport.input(),           # Text input
             context_aggregator.user(),   # User context

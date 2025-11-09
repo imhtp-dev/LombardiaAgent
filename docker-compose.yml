@@ -139,6 +139,42 @@ services:
     networks:
       - pipecat-network
 
+
+  # Info Agent - Medical Information Assistant
+  info-agent:
+    image: rudyimhtpdev/voicebooking_piemo1:latest
+    container_name: info-agent
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - HOST=0.0.0.0
+      - AGENT_TYPE=info
+    env_file:
+      - .env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.66'
+        reservations:
+          memory: 1G
+          cpus: '0.4'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./logs:/app/logs
+      - ./recordings:/app/recordings
+    networks:
+      - pipecat-network
+    command: ["python", "-m", "uvicorn", "info_agent.main:app", "--host", "0.0.0.0", "--port", "8081"]
+
+
 networks:
   pipecat-network:
     driver: bridge

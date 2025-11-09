@@ -12,7 +12,7 @@ load_dotenv(override=True)
 
 
 class InfoAgentSettings:
-    """Info agent specific configuration"""
+  
     
     def __init__(self):
         self._validate_api_endpoints()
@@ -99,10 +99,10 @@ STRICT RESTRICTIONS:
 {chr(10).join(f'❌ {restriction}' for restriction in agent['restrictions'])}
 
 WHEN TO TRANSFER TO HUMAN OPERATOR:
-✅ If patient wishes to book appointment → Politely ask if they want to be transferred
-✅ If cannot find information in functions → Politely ask if they would like to be transferred to a colleague
-✅ If information requested about SSN/Agreement services → Politely offer transfer
-✅ If document/form not found in knowledge base → Politely offer transfer
+If patient wishes to book appointment → Politely ask if they want to be transferred
+If cannot find information in functions → Politely ask if they would like to be transferred to a colleague
+If information requested about SSN/Agreement services → Politely offer transfer
+If document/form not found in knowledge base → Politely offer transfer
 
 IMPORTANT BEHAVIORAL RULES:
 - ALWAYS use only the available functions for each piece of information

@@ -109,18 +109,18 @@ INFO_AGENT_PORT=8081
 INFO_AGENT_HOST=0.0.0.0
 
 # Knowledge Base API
-KNOWLEDGE_BASE_URL=https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/query_new
+KNOWLEDGE_BASE_URL=
 
 # Exam APIs
-EXAM_BY_VISIT_URL=https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/get_list_exam_by_visit
-EXAM_BY_SPORT_URL=https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/get_list_exam_by_sport
+EXAM_BY_VISIT_URL=
+EXAM_BY_SPORT_URL=
 
 # Pricing APIs
-PRICE_NON_AGONISTIC_URL=https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/get_price_non_agonistic_visit
-PRICE_AGONISTIC_URL=https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/get_price_agonistic_visit
+PRICE_NON_AGONISTIC_URL=
+PRICE_AGONISTIC_URL=
 
 # Clinic Info API
-CALL_GRAPH_URL=https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/call_graph
+CALL_GRAPH_URL=
 
 # API Timeout (optional)
 API_TIMEOUT=30
@@ -331,7 +331,10 @@ More Help?  Done
 
 ```bash
 cd info_agent
-python chat_test.py
+python chat_test.py 
+`or`
+info_agent\test_info_agent.py
+
 ```
 
 Then open: http://localhost:8082
@@ -433,19 +436,9 @@ python chat_test.py
 # Test conversation flows
 ```
 
-**90% of development** should use chat test:
-- No API costs
-- Instant feedback
-- Easy debugging
-- Test all flows
 
-### 3. Test with Voice (Final Validation)
 
-```bash
-python main.py
-# Connect via WebSocket
-# Test with real voice
-```
+
 
 **10% final validation** with voice:
 - Validate Italian language
@@ -579,52 +572,10 @@ taskkill /PID <pid> /F
 
 ---
 
-## Next Steps
 
-### Immediate
-
-- [x] Core implementation complete
-- [ ] Test all conversation flows
-- [ ] Validate API integrations
-- [ ] Test Italian language quality
-- [ ] Performance testing
-
-### Short Term 
-
-- [ ] Deploy alongside booking agent
-- [ ] Monitor in test environment
-- [ ] Collect user feedback
-- [ ] Tune prompts and responses
-
-### Medium Term 
-
-- [ ] Implement router for agent selection
-- [ ] Integrate with Talkdesk bridge
-- [ ] Production deployment
-- [ ] Monitor call volume and transfers
-
----
 
 ## Documentation
 
-- **Implementation Plan**: [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) - Detailed architecture
+- **Implementation Summery**: [`IMPLEMENTATION_SUMMARY.md`](IMPLEMENTATION_SUMMARY.md) - Detailed architecture
 
----
 
-## Changelog
-
-### Version 1.0.0 (January 2025)
-
-- ✅ Initial implementation
-- ✅ All 6 information tools implemented
-- ✅ Dynamic conversation flows
-- ✅ Italian language optimized
-- ✅ Chat test interface
-- ✅ Transfer to human operator
-- ✅ Reuses booking agent infrastructure
-
----
-
-**Maintained By**: Rahees Ahmed  
-**Last Updated**: January 2025  
-**Status**: Ready for testing

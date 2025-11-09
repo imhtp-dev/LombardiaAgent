@@ -15,7 +15,7 @@ from loguru import logger
 # Add parent directory to path to import from booking agent
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Enable debugging
+
 logging.getLogger("deepgram").setLevel(logging.DEBUG)
 logging.getLogger("websockets").setLevel(logging.DEBUG)
 
@@ -23,7 +23,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-# Pipecat imports
+
 from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,
@@ -39,13 +39,13 @@ from pipecat.transports.websocket.fastapi import (
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
 
-# Import flow management
+
 from info_agent.flows.manager import create_flow_manager, initialize_flow_manager
 
-# Import configuration
+
 from info_agent.config.settings import info_settings
 
-# Reuse pipeline components from booking agent
+
 from pipeline.components import (
     create_stt_service,
     create_tts_service,
@@ -57,7 +57,7 @@ from config.settings import settings as booking_settings
 load_dotenv(override=True)
 
 
-# PCM Serializer (same as booking agent)
+
 class RawPCMSerializer(FrameSerializer):
     """Simple serializer for PCM audio (16kHz, mono)"""
     
@@ -82,14 +82,14 @@ class RawPCMSerializer(FrameSerializer):
         return None
 
 
-# FastAPI app
+
 app = FastAPI(
     title=info_settings.server_config["title"],
     description="Pipecat-based medical information agent for Cerba Healthcare",
     version=info_settings.server_config["version"]
 )
 
-# CORS configuration
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -98,7 +98,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Active sessions
+
 active_sessions: Dict[str, Any] = {}
 
 

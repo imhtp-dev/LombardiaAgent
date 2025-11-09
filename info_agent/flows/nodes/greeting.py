@@ -8,10 +8,6 @@ from info_agent.config.settings import info_settings
 
 
 def create_greeting_node() -> NodeConfig:
-    """
-    Create the initial greeting node with all available functions
-    This node handles the initial greeting and routes to appropriate handlers
-    """
     
     # Import handlers
     from info_agent.flows.handlers.knowledge_handlers import query_knowledge_base_handler
