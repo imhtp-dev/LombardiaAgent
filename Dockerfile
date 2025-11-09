@@ -55,6 +55,7 @@ COPY pipeline/ ./pipeline/
 COPY services/ ./services/
 COPY utils/ ./utils/
 COPY data/ ./data/
+COPY info_agent/ ./info_agent/
 COPY bot.py extractCF.py ./
 
 # Create non-root user and set permissions
