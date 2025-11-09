@@ -172,7 +172,7 @@ services:
       - ./recordings:/app/recordings
     networks:
       - pipecat-network
-    command: ["python", "-m", "uvicorn", "info_agent.main:app", "--host", "0.0.0.0", "--port", "8081"]
+    command: ["sh", "-c", "cd /app && python -m uvicorn info_agent.main:app --host 0.0.0.0 --port 8081"]
 
 
 networks:
