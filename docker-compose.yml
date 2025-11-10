@@ -1,25 +1,46 @@
 services:
-  pipecat-agent:
-    image: rudyimhtpdev/voicebooking_piemo1:latest
-    # NO container_name - allows scaling with: docker-compose up --scale pipecat-agent=10
+  # Nginx Load Balancer - Entry point for Bridge connections
+  nginx-lb:
+    image: nginx:alpine
+    container_name: nginx-load-balancer
     ports:
-      - "8000:8000"  # Fixed port 8000 for stable bridge connection
+      - "8000:8000"  # Bridge connects here
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - pipecat-agent-1
+      - pipecat-agent-2
+      - pipecat-agent-3
+    restart: unless-stopped
+    networks:
+      - pipecat-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Pipecat Agent 1
+  pipecat-agent-1:
+    image: rudyimhtpdev/voicebooking_piemo1:latest
+    container_name: pipecat-agent-1
     environment:
       - PORT=8000
       - HOST=0.0.0.0
+      - INSTANCE_ID=1
     env_file:
       - .env
     restart: unless-stopped
     deploy:
-      mode: replicated
-      replicas: 1  # Scale with: docker-compose up --scale pipecat-agent=10
       resources:
         limits:
-          memory: 1500M  # Reduced from 4G (each container needs ~1GB)
-          cpus: '1.0'    # 1 CPU per container
+          memory: 2G
+          cpus: '0.66'
         reservations:
-          memory: 800M   # Minimum 800MB per container
-          cpus: '0.5'    # Minimum 0.5 CPU
+          memory: 1G
+          cpus: '0.4'
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -39,6 +60,120 @@ services:
         hard: 65536
     networks:
       - pipecat-network
+
+  # Pipecat Agent 2
+  pipecat-agent-2:
+    image: rudyimhtpdev/voicebooking_piemo1:latest
+    container_name: pipecat-agent-2
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - INSTANCE_ID=2
+    env_file:
+      - .env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.66'
+        reservations:
+          memory: 1G
+          cpus: '0.4'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./logs:/app/logs
+      - ./recordings:/app/recordings
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - pipecat-network
+
+  # Pipecat Agent 3
+  pipecat-agent-3:
+    image: rudyimhtpdev/voicebooking_piemo1:latest
+    container_name: pipecat-agent-3
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - INSTANCE_ID=3
+    env_file:
+      - .env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.66'
+        reservations:
+          memory: 1G
+          cpus: '0.4'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./logs:/app/logs
+      - ./recordings:/app/recordings
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - pipecat-network
+
+
+  # Info Agent - Medical Information Assistant
+  info-agent:
+    image: rudyimhtpdev/voicebooking_piemo1:latest
+    container_name: info-agent
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - HOST=0.0.0.0
+      - AGENT_TYPE=info
+    env_file:
+      - .env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.66'
+        reservations:
+          memory: 1G
+          cpus: '0.4'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./logs:/app/logs
+      - ./recordings:/app/recordings
+    networks:
+      - pipecat-network
+    command: ["sh", "-c", "cd /app && python -m uvicorn info_agent.main:app --host 0.0.0.0 --port 8081"]
+
 
 networks:
   pipecat-network:

@@ -6,11 +6,6 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      scale_instances:
-        description: 'Number of containers to run (1-8 for 8GB RAM)'
-        required: false
-        default: '5'
 
 env:
   REGISTRY: rudyimhtpdev
@@ -68,6 +63,10 @@ jobs:
           script: |
             cd /home/azureuser/voilavoicebooking
 
+            # Pull latest code to get updated docker-compose.yml and nginx.conf
+            echo "Pulling latest code from GitHub..."
+            git pull origin main
+
             # Login to Docker Hub (in case credentials expired)
             echo "Logging in to Docker Hub..."
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
@@ -76,24 +75,20 @@ jobs:
             echo "Pulling latest image..."
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             
-            # Get current running containers count
-            CURRENT_SCALE=$(docker ps --filter "name=pipecat-agent" -q | wc -l)
-            echo "Current scale: $CURRENT_SCALE containers"
-            
-            # Use workflow input or default to current scale (min 5)
-            SCALE_COUNT=${{ github.event.inputs.scale_instances || '5' }}
-            if [ $CURRENT_SCALE -gt $SCALE_COUNT ]; then
-              SCALE_COUNT=$CURRENT_SCALE
-            fi
-            echo "Deploying with $SCALE_COUNT containers..."
+            # Create nginx logs directory if not exists
+            mkdir -p logs/nginx
             
             # Graceful shutdown of old containers
             echo "Stopping old containers..."
             docker-compose down --remove-orphans
             
-            # Start new containers with scaling
-            echo "Starting new containers (scale: $SCALE_COUNT)..."
-            docker-compose up -d --scale pipecat-agent=$SCALE_COUNT
+            # Start new containers (3 agents + nginx load balancer)
+            echo "Starting new containers (Nginx + 3 Pipecat agents)..."
+            docker-compose up -d
+            
+            # Wait for containers to be healthy
+            echo "Waiting for containers to be healthy..."
+            sleep 10
             
             # Cleanup old images
             echo "Cleaning up old images..."
@@ -103,13 +98,20 @@ jobs:
             echo "Verifying deployment..."
             docker-compose ps
             
-            # Check health endpoint
-            sleep 5
+            # Check load balancer health
+            echo "Checking load balancer health..."
+            sleep 3
             curl -f http://localhost:8000/health || echo "Health check failed!"
             
-            # Show logs
+            # Show container status
+            echo ""
+            echo "Container Status:"
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            
+            # Show recent logs
+            echo ""
             echo "Recent logs:"
-            docker-compose logs --tail=20 pipecat-agent
+            docker-compose logs --tail=20
 
       - name: Deployment Summary
         if: always()
@@ -117,6 +119,6 @@ jobs:
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Time**: ${{ job.steps.build-and-push.conclusion }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Architecture**: Nginx Load Balancer + 3 Pipecat Agents" >> $GITHUB_STEP_SUMMARY
           echo "- **Deployed to**: ${{ env.AZURE_VM_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Scale**: ${{ github.event.inputs.scale_instances || 'Default (5 containers)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Capacity**: 3 simultaneous calls" >> $GITHUB_STEP_SUMMARY
