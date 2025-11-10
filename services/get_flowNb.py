@@ -297,7 +297,7 @@ def genera_flow(hc_uuid,medical_exam_id):
 # Ecografia Addome Superiore
 # 12826519-dd21-4e34-900e-ee8d471974a8
 ########################################
-#risu=genera_flow("c5535638-6c18-444c-955d-89139d8276be","9a93d65f-396a-45e4-9284-94481bdd2b51")
+#risu=genera_flow("c5535638-6c18-444c-955d-89139d8276be","d9eb5830-3c36-4aa1-b0f5-20445ef2e825")
 #print(risu)
 
 

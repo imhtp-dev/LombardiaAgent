@@ -1,6 +1,7 @@
 import requests
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+from loguru import logger
 #from auth import get_token
 
 
@@ -45,22 +46,38 @@ def list_slot(health_center_uuid, date_search, uuid_exam, gender='m', date_of_bi
     request_data = {
         'gender': gender,
         'date_of_birth': date_of_birth,
-        'health_services': [uuid_exam],
+        'health_services': uuid_exam,  # uuid_exam is already a list
         'start_date': date_search, # Date of appointment
         'start_time': start_time, # 2025-09-12 09:00:00+00
         'end_time': end_time, # 2025-09-12 10:00:00+00
-        'availabilities_limit': 3                   
+        'availabilities_limit': 3
     }
 
+    logger.info(f'🔍 SLOT API REQUEST: Making API request to: {api_url}')
+    logger.info(f'🔍 SLOT API REQUEST: Request params: {request_data}')
     print(f'🔍 SLOT FETCH DEBUG: Making API request to: {api_url}')
     print(f'🔍 SLOT FETCH DEBUG: Request params: {request_data}')
 
     response = requests.get(api_url, headers=headers, params=request_data)
 
+    logger.info(f'🔍 SLOT API RESPONSE: Status {response.status_code}')
     print(f'🔍 SLOT FETCH DEBUG: Response status: {response.status_code}')
 
     if response.status_code == 200:
         slots = response.json()
+
+        logger.info(f'🔍 SLOT API RESPONSE: Received {len(slots) if isinstance(slots, list) else 0} slots')
+
+        # Log first 3 slots with their health_services data
+        if isinstance(slots, list) and len(slots) > 0:
+            for i, slot in enumerate(slots[:3]):  # First 3 slots only
+                health_services = slot.get("health_services", [])
+                if health_services:
+                    service = health_services[0]
+                    logger.info(f'🔍 SLOT API RESPONSE: Slot {i+1} - Service: {service.get("name", "N/A")}, UUID: {service.get("uuid", "N/A")}, Price: {service.get("price", "N/A")}€, Cerba: {service.get("cerba_card_price", "N/A")}€')
+                else:
+                    logger.warning(f'🔍 SLOT API RESPONSE: Slot {i+1} - No health_services data!')
+
         print(f'🔍 SLOT FETCH DEBUG: ===== FULL API RESPONSE =====')
         print(f'🔍 SLOT FETCH DEBUG: Raw response: {slots}')
         print(f'🔍 SLOT FETCH DEBUG: Response type: {type(slots)}')
@@ -83,6 +100,7 @@ def list_slot(health_center_uuid, date_search, uuid_exam, gender='m', date_of_bi
         print(f'🔍 SLOT FETCH DEBUG: ===== END RESPONSE =====')
         return slots  # Return the slots data
     else:
+        logger.error(f'🔍 SLOT API ERROR: Status {response.status_code} - {response.text}')
         print(f'🔍 SLOT FETCH DEBUG: ❌ API Error: {response.status_code} - {response.text}')
         return []  # Return empty list on error
 
@@ -94,27 +112,48 @@ def create_slot(start_slot,end_slot,pea):
     ambiente="prod"
 
     token = get_token()
-    
+
     api_url = f'https://3z0xh9v1f4.execute-api.eu-south-1.amazonaws.com/{ambiente}/amb/slot'
 
     headers = {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json',
     }
-    
+
     request_data = {
         'start_time':start_slot,
         'end_time':end_slot,
         'providing_entity_availability':pea # unique identifier of the availability
     }
+
+    # LOG REQUEST DETAILS
+    logger.info(f'🔍 SLOT CREATE REQUEST: Making API request to: {api_url}')
+    logger.info(f'🔍 SLOT CREATE REQUEST: Request data: {request_data}')
+    logger.info(f'🔍 SLOT CREATE REQUEST: PEA: {pea}')
+    logger.info(f'🔍 SLOT CREATE REQUEST: Start: {start_slot}, End: {end_slot}')
+
     response = requests.post(api_url, headers=headers, json=request_data)
+
+    # LOG RESPONSE
+    logger.info(f'🔍 SLOT CREATE RESPONSE: Status {response.status_code}')
+
     uuid_slot=""
     crea_at=""
-    if response.status_code == 200:
+    if response.status_code == 200 or response.status_code == 201:
         data = response.json()
-        #print(data)
         uuid_slot = data.get('uuid', '')
         crea_at = data.get('created_at', '')
+        logger.success(f'✅ SLOT CREATED: UUID={uuid_slot}, created_at={crea_at}')
+    else:
+        # LOG ERROR DETAILS
+        try:
+            error_data = response.json()
+            logger.error(f'❌ SLOT CREATE ERROR: Status {response.status_code}')
+            logger.error(f'❌ SLOT CREATE ERROR: Response body: {error_data}')
+        except:
+            logger.error(f'❌ SLOT CREATE ERROR: Status {response.status_code}')
+            logger.error(f'❌ SLOT CREATE ERROR: Response text: {response.text}')
+
     return response.status_code,uuid_slot,crea_at
 
 
@@ -133,6 +172,6 @@ def delete_slot(slot_uuid):
     return response
 
 
-print(list_slot("c48ff93f-1c88-4621-9cd5-31ad87e83e48","2025-10-24","9a93d65f-396a-45e4-9284-94481bdd2b51", start_time="2025-11-17 07:00:00+00", end_time="2025-11-17 17:00:00+00"))
+print(list_slot("6cff89d8-1f40-4eb8-bed7-f36e94a3355c","2025-10-24",['9a93d65f-396a-45e4-9284-94481bdd2b51', '7de81336-c7ce-4dad-a04b-ad4b2193113d'], start_time="2025-11-17 07:00:00+00", end_time="2025-11-17 17:00:00+00"))
 #print(create_slot('2025-10-08 15:15:00','2025-10-08 15:25:00',"d1bbc9cd-e7e8-4e1e-8075-b637824504a6"))
 #print(create_slot('2025-10-27 11:25:00','2025-10-27 11:30:00',"d1bbc9cd-e7e8-4e1e-8075-b637824504a6"))
