@@ -94,14 +94,20 @@ async def perform_center_search_and_transition(args: FlowArgs, flow_manager: Flo
 
         # Format date for API
         dob_formatted = date_of_birth.replace("-", "")
-        
-        # Call Cerba API with all selected services
-        health_centers = cerba_api.get_health_centers(
-            health_services=service_uuids,
-            gender=gender,
-            date_of_birth=dob_formatted,
-            address=address
+
+        # Call Cerba API with all selected services - run in executor to avoid blocking
+        import asyncio
+        loop = asyncio.get_event_loop()
+        logger.info(f"🔍 Starting non-blocking health center search for {len(service_uuids)} services in {address}")
+        health_centers = await loop.run_in_executor(
+            None,  # Use default thread pool executor
+            cerba_api.get_health_centers,
+            service_uuids,
+            gender,
+            dob_formatted,
+            address
         )
+        logger.info(f"✅ Health center search completed: found {len(health_centers) if health_centers else 0} centers")
         
         if health_centers:
             flow_manager.state["final_health_centers"] = health_centers[:3]  # Top 3 centers
@@ -641,6 +647,9 @@ async def update_date_and_search_slots(args: FlowArgs, flow_manager: FlowManager
 
             user_preferred_date = flow_manager.state.get("preferred_date")
             time_preference_state = flow_manager.state.get("time_preference", "any time")
+
+            # Get booking scenario from state
+            booking_scenario = flow_manager.state.get("booking_scenario", "legacy")
 
             # Create display service object
             if booking_scenario != "legacy":
