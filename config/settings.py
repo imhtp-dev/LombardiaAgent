@@ -113,7 +113,7 @@ class Settings:
     @property
     def language_config(self) -> str:
         """Global language instruction for prompts"""
-        return "You need to speak English"
+        return "You need to speak Italian"
 
     @property
     def llm_interpretation_config(self) -> Dict[str, Any]:
