@@ -29,7 +29,7 @@ def get_token():
 
 async def test_sorting_api():
     """Test sorting API with RX Caviglia Destra"""
-    health_center_uuid = "c5535638-6c18-444c-955d-89139d8276be"
+    health_center_uuid = "eec95682-3851-4894-b605-91130f30821d"
     rx_caviglia_uuid = "9a93d65f-396a-45e4-9284-94481bdd2b51"
 
     print(f"\n🧪 Testing Sorting API - RX Caviglia Destra")
@@ -45,12 +45,12 @@ async def test_sorting_api():
     headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
     
     params = {
-        'gender': 'm',
-        'date_of_birth': '1990-01-01',
-        'health_services': rx_caviglia_uuid,
-        'prescriptions': '1cc793b7-4a8b-4c54-ac09-3c7ca7e5a168',
+        'gender': 'f',
+        'date_of_birth': '20010427',
+        'health_services': "d9eb5830-3c36-4aa1-b0f5-20445ef2e825",
+        'prescriptions': '',
         'preliminary_visits': '',
-        'optionals': '',
+        'optionals': '8663256e-7f01-4cf3-92ea-2fd7b4756e69',
         'opinions': ''
     }
 

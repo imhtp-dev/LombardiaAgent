@@ -143,18 +143,16 @@ async def finalize_services_and_search_centers(args: FlowArgs, flow_manager: Flo
     try:
         # Get parameters from LLM flow navigation
         additional_services = args.get("additional_services", [])
-        specialist_visit_chosen = args.get("specialist_visit_chosen", False)
         flow_path = args.get("flow_path", "")
-        
+
         # Get existing selected services from state
         selected_services = flow_manager.state.get("selected_services", [])
-        
+
         # Get the generated flow to understand what services were offered
         generated_flow = flow_manager.state.get("generated_flow", {})
-        
+
         logger.info(f"🔍 Flow navigation complete:")
         logger.info(f"   Additional services: {additional_services}")
-        logger.info(f"   Specialist visit chosen: {specialist_visit_chosen}")
         logger.info(f"   Flow path: {flow_path}")
         logger.info(f"   Original services: {[s.name for s in selected_services]}")
         
@@ -208,10 +206,6 @@ async def finalize_services_and_search_centers(args: FlowArgs, flow_manager: Flo
             except Exception as e:
                 logger.error(f"❌ Failed to create HealthService for '{service_name}': {e}")
 
-        # Log specialist visit flag (LLM should have already included them in additional_services with proper sector)
-        if specialist_visit_chosen:
-            logger.info(f"👩‍⚕️ User chose specialist visit - should be included in additional_services above")
-
         # Ensure we have at least the original service
         if not selected_services:
             logger.warning("⚠️  No services in final selection, this shouldn't happen")
@@ -228,8 +222,7 @@ async def finalize_services_and_search_centers(args: FlowArgs, flow_manager: Flo
         return {
             "success": True,
             "final_services": [s.name for s in selected_services],
-            "service_count": len(selected_services),
-            "specialist_visit": specialist_visit_chosen
+            "service_count": len(selected_services)
         }, create_final_center_search_node()
         
     except Exception as e:

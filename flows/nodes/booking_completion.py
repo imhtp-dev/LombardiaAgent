@@ -20,11 +20,11 @@ def create_booking_success_final_node(booking_info: Dict, selected_services: Lis
     booking_uuid = booking_info.get("uuid", "N/A")
     creation_date = booking_info.get("created_at", "")
 
-    # Format slot details
+    # Format slot details (use service_name from booked_slots, not selected_services index)
     slots_details = []
     total_price = 0
 
-    for i, slot in enumerate(booked_slots):
+    for slot in booked_slots:
         # Convert UTC times to Italian local time for user display
         from services.timezone_utils import utc_to_italian_display
 
@@ -33,6 +33,7 @@ def create_booking_success_final_node(booking_info: Dict, selected_services: Lis
 
         # Fallback to original if conversion fails
         if not italian_start or not italian_end:
+            from loguru import logger
             logger.warning(f"⚠️ Timezone conversion failed for booking completion display, using original times")
             start_time_str = slot['start_time'].replace("T", " ").replace("+00:00", "")
             end_time_str = slot['end_time'].replace("T", " ").replace("+00:00", "")
@@ -47,7 +48,8 @@ def create_booking_success_final_node(booking_info: Dict, selected_services: Lis
         start_time = start_dt.strftime("%-H:%M")
         end_time = end_dt.strftime("%-H:%M")
 
-        service_name = selected_services[i].name if i < len(selected_services) else "Service"
+        # Use service_name from slot (which already has bundled names like "RX A + RX B")
+        service_name = slot.get('service_name', 'Service')
         price = slot.get('price', 0)
 
         # If price is 0, try to get it from health_services within the slot (like in booking summary)

@@ -324,7 +324,7 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("  9. TranscriptProcessor.assistant() - Capture assistant responses")
         logger.info("  10. Context Aggregator (Assistant)")
 
-        # Create pipeline task
+        # Create pipeline task with extended idle timeout for API calls
         task = PipelineTask(
             pipeline,
             params=PipelineParams(
@@ -332,7 +332,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 enable_transcriptions=True,
                 audio_in_sample_rate=16000,
                 audio_out_sample_rate=16000,
-            )
+            ),
+            idle_timeout_secs=600  # 10 minutes - allows for long API calls (sorting, slot search)
         )
 
         # START PER-CALL LOGGING (create individual logger instance)

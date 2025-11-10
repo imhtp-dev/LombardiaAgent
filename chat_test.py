@@ -15,6 +15,7 @@ Usage:
     python chat_test.py                              # Start with greeting (full flow)
     python chat_test.py --start-node email           # Start with email collection
     python chat_test.py --start-node booking         # Start with booking flow
+    python chat_test.py --start-node orange_box      # Start from Orange Box flow (RX Caviglia Destra)
     python chat_test.py --start-node cerba_card      # Start from Cerba Card question (auto-filled data)
     python chat_test.py --port 8081                  # Use custom port
 
@@ -927,8 +928,8 @@ async def websocket_endpoint(websocket: WebSocket):
             params=PipelineParams(
                 allow_interruptions=False,  # Not needed for text
                 enable_transcriptions=False,  # No audio transcription
-                # idle_timeout=None,  # Disable idle timeout entirely for text chat
-            )
+            ),
+            cancel_on_idle_timeout=False  # MUST be direct parameter to PipelineTask, not in params!
         )
 
         # START PER-CALL LOGGING
@@ -1062,18 +1063,19 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python chat_test.py                       # Full flow (greeting)
-  python chat_test.py --start-node email    # Start with email collection
-  python chat_test.py --start-node booking  # Start with booking flow
+  python chat_test.py                         # Full flow (greeting)
+  python chat_test.py --start-node email      # Start with email collection
+  python chat_test.py --start-node booking    # Start with booking flow
+  python chat_test.py --start-node orange_box # Test Orange Box flow (RX Caviglia Destra)
   python chat_test.py --start-node cerba_card # Start from Cerba Card (auto-filled)
-  python chat_test.py --port 8081           # Use custom port
+  python chat_test.py --port 8081             # Use custom port
         """
     )
 
     parser.add_argument(
         "--start-node",
         default="greeting",
-        choices=["greeting", "email", "name", "phone", "fiscal_code", "booking", "slot_selection", "cerba_card"],
+        choices=["greeting", "email", "name", "phone", "fiscal_code", "booking", "slot_selection", "cerba_card", "orange_box"],
         help="Starting flow node (default: greeting for full flow)"
     )
 
