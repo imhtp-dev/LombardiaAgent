@@ -150,4 +150,12 @@ extra/
 
 # Development and testing files
 test.py
+test_*.py
 CLAUDE.md
+
+# MCP Server (Serena)
+.serena/
+
+# Development helper files
+.envrc
+activate.sh
