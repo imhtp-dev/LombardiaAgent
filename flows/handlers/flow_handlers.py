@@ -102,13 +102,20 @@ async def perform_flow_generation_and_transition(args: FlowArgs, flow_manager: F
         # Use first available health center for flow generation
         health_center = health_centers[0]
         
-        # Generate the decision flow using get_flowNb.py with health centers list
+        # Generate the decision flow using get_flowNb.py with health centers list - run in executor to avoid blocking
         hc_uuids = [center.uuid for center in health_centers]
         logger.info(f"🔄 Calling genera_flow with: centers={hc_uuids[:3]}, service={primary_service.uuid}")
-        generated_flow = genera_flow(
-            hc_uuids,  # Pass list of health center UUIDs 
+
+        import asyncio
+        loop = asyncio.get_event_loop()
+        logger.info(f"🔍 Starting non-blocking flow generation")
+        generated_flow = await loop.run_in_executor(
+            None,  # Use default thread pool executor
+            genera_flow,
+            hc_uuids,  # Pass list of health center UUIDs
             primary_service.uuid  # Pass medical exam ID
         )
+        logger.info(f"✅ Flow generation completed")
         
         if not generated_flow:
             logger.warning(f"Failed to generate flow for {primary_service.name}, proceeding with direct booking")

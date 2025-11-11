@@ -1298,12 +1298,44 @@ async def perform_slot_booking_and_transition(args: FlowArgs, flow_manager: Flow
         start_time = selected_slot["start_time"]
         end_time = selected_slot["end_time"]
         providing_entity_availability = selected_slot["providing_entity_availability_uuid"]
-        
+
         # Convert datetime format for create_slot function
         start_slot = start_time.replace("T", " ").replace("+00:00", "")
         end_slot = end_time.replace("T", " ").replace("+00:00", "")
-        
-        logger.info(f"📝 Creating slot reservation: {start_slot} to {end_slot}")
+
+        # DETAILED SLOT VERIFICATION LOGGING
+        logger.info("=" * 80)
+        logger.info("🔍 SLOT RESERVATION VERIFICATION")
+        logger.info("=" * 80)
+        logger.info(f"📋 Full Selected Slot Data:")
+        logger.info(f"   Raw slot object: {selected_slot}")
+        logger.info(f"   Start Time (original): {start_time}")
+        logger.info(f"   End Time (original): {end_time}")
+        logger.info(f"   PEA UUID: {providing_entity_availability}")
+        logger.info(f"   Converted Start: {start_slot}")
+        logger.info(f"   Converted End: {end_slot}")
+
+        # Verify against available_slots to confirm LLM didn't hallucinate
+        available_slots = flow_manager.state.get("available_slots", [])
+        slot_found_in_available = False
+        for idx, avail_slot in enumerate(available_slots):
+            if (avail_slot.get("start_time") == start_time and
+                avail_slot.get("providing_entity_availability_uuid") == providing_entity_availability):
+                slot_found_in_available = True
+                logger.info(f"✅ VERIFIED: Slot exists in available_slots at index {idx}")
+                logger.info(f"   Available slot data: {avail_slot}")
+                break
+
+        if not slot_found_in_available:
+            logger.error(f"❌ WARNING: Selected slot NOT found in available_slots!")
+            logger.error(f"   This might be LLM hallucination!")
+            logger.error(f"   Available slots count: {len(available_slots)}")
+            logger.error(f"   First 3 available slots:")
+            for idx, avail_slot in enumerate(available_slots[:3]):
+                logger.error(f"      [{idx}] Start: {avail_slot.get('start_time')}, PEA: {avail_slot.get('providing_entity_availability_uuid')}")
+
+        logger.info("=" * 80)
+        logger.info(f"📝 Proceeding with slot reservation: {start_slot} to {end_slot}")
 
         # Call create_slot function (this reserves the slot)
         status_code, slot_uuid, created_at = create_slot(start_slot, end_slot, providing_entity_availability)
