@@ -110,29 +110,45 @@ class TwilioSMSService:
 
         Args:
             booking_data: Booking information
+                - patient_name: str
+                - center_name: str
+                - booking_id: str
+                - appointments: List[Dict] with service_name, date, time
 
         Returns:
             Formatted SMS message in Italian
         """
         # Extract booking details
         patient_name = booking_data.get('patient_name', 'Paziente')
-        service_name = booking_data.get('service_name', 'Servizio')
         center_name = booking_data.get('center_name', 'Centro medico')
-        booking_date = booking_data.get('booking_date', 'Data da confermare')
-        booking_time = booking_data.get('booking_time', 'Orario da confermare')
         booking_id = booking_data.get('booking_id', 'N/A')
+        appointments = booking_data.get('appointments', [])
 
-        # Format the message (keep under 160 characters for single SMS)
+        # Build appointments text
+        if appointments:
+            appointments_text = ""
+            for i, appt in enumerate(appointments, 1):
+                service_name = appt.get('service_name', 'Servizio')
+                appt_date = appt.get('date', 'TBD')
+                appt_time = appt.get('time', 'TBD')
+
+                if len(appointments) > 1:
+                    # Multiple appointments - number them
+                    appointments_text += f"\n{i}. {service_name}\n   {appt_date} ore {appt_time}"
+                else:
+                    # Single appointment
+                    appointments_text += f"\n📋 {service_name}\n📅 {appt_date} ore {appt_time}"
+        else:
+            appointments_text = "\n📋 Appuntamento da confermare"
+
+        # Format the message
         message = f"""🏥 Cerba Healthcare - Conferma Prenotazione
 
 Gentile {patient_name},
 La sua prenotazione è confermata:
+{appointments_text}
 
-📋 Servizio: {service_name}
 📍 Centro: {center_name}
-📅 Data: {booking_date}
-🕐 Ora: {booking_time}
-
 Codice: {booking_id}
 
 Per modifiche: +39 02 xxxxx

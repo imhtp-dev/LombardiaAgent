@@ -102,13 +102,20 @@ async def perform_flow_generation_and_transition(args: FlowArgs, flow_manager: F
         # Use first available health center for flow generation
         health_center = health_centers[0]
         
-        # Generate the decision flow using get_flowNb.py with health centers list
+        # Generate the decision flow using get_flowNb.py with health centers list - run in executor to avoid blocking
         hc_uuids = [center.uuid for center in health_centers]
         logger.info(f"🔄 Calling genera_flow with: centers={hc_uuids[:3]}, service={primary_service.uuid}")
-        generated_flow = genera_flow(
-            hc_uuids,  # Pass list of health center UUIDs 
+
+        import asyncio
+        loop = asyncio.get_event_loop()
+        logger.info(f"🔍 Starting non-blocking flow generation")
+        generated_flow = await loop.run_in_executor(
+            None,  # Use default thread pool executor
+            genera_flow,
+            hc_uuids,  # Pass list of health center UUIDs
             primary_service.uuid  # Pass medical exam ID
         )
+        logger.info(f"✅ Flow generation completed")
         
         if not generated_flow:
             logger.warning(f"Failed to generate flow for {primary_service.name}, proceeding with direct booking")
@@ -143,18 +150,16 @@ async def finalize_services_and_search_centers(args: FlowArgs, flow_manager: Flo
     try:
         # Get parameters from LLM flow navigation
         additional_services = args.get("additional_services", [])
-        specialist_visit_chosen = args.get("specialist_visit_chosen", False)
         flow_path = args.get("flow_path", "")
-        
+
         # Get existing selected services from state
         selected_services = flow_manager.state.get("selected_services", [])
-        
+
         # Get the generated flow to understand what services were offered
         generated_flow = flow_manager.state.get("generated_flow", {})
-        
+
         logger.info(f"🔍 Flow navigation complete:")
         logger.info(f"   Additional services: {additional_services}")
-        logger.info(f"   Specialist visit chosen: {specialist_visit_chosen}")
         logger.info(f"   Flow path: {flow_path}")
         logger.info(f"   Original services: {[s.name for s in selected_services]}")
         
@@ -208,10 +213,6 @@ async def finalize_services_and_search_centers(args: FlowArgs, flow_manager: Flo
             except Exception as e:
                 logger.error(f"❌ Failed to create HealthService for '{service_name}': {e}")
 
-        # Log specialist visit flag (LLM should have already included them in additional_services with proper sector)
-        if specialist_visit_chosen:
-            logger.info(f"👩‍⚕️ User chose specialist visit - should be included in additional_services above")
-
         # Ensure we have at least the original service
         if not selected_services:
             logger.warning("⚠️  No services in final selection, this shouldn't happen")
@@ -228,8 +229,7 @@ async def finalize_services_and_search_centers(args: FlowArgs, flow_manager: Flo
         return {
             "success": True,
             "final_services": [s.name for s in selected_services],
-            "service_count": len(selected_services),
-            "specialist_visit": specialist_visit_chosen
+            "service_count": len(selected_services)
         }, create_final_center_search_node()
         
     except Exception as e:

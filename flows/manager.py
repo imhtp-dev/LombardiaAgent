@@ -219,6 +219,43 @@ async def initialize_flow_manager(flow_manager: FlowManager, start_node: str = "
 
         # Initialize at Cerba Card question
         await flow_manager.initialize(create_cerba_membership_node())
+    elif start_node == "orange_box":
+        from flows.nodes.booking import create_orange_box_node
+        from models.requests import HealthService
+
+        # Pre-populate state with RX Caviglia Destra service only
+        service = HealthService(
+            uuid="b5928e02-99c5-45ab-aa6c-51e57fca3fd2",
+            name="Visita Cardiologica (Prima Visita)",
+            code="PCAR0001",
+            synonyms=["Prima Visita Cardiologica","Visita per Aritmie"],
+            sector="health_services"
+        )
+
+        flow_manager.state.update({
+            # Service data - orange box will generate the decision flow
+            "selected_service": service,
+            "selected_services": [service],
+
+            # Patient data required for flow generation (sorting API needs this)
+            "patient_gender": "m",
+            "patient_dob": "1989-04-29",
+            "patient_address": "Milan"
+        })
+
+        print("🧪 ORANGE BOX FLOW TEST MODE")
+        print("=" * 50)
+        print("📋 Pre-populated test data:")
+        print(f"   Service: {service.name}")
+        print(f"   UUID: {service.uuid}")
+        print(f"   Code: {service.code}")
+        print(f"   Sector: {service.sector}")
+        print(f"   Patient: Male, DOB: 1989-04-29, Address: Milan")
+        print("   📦 Starting from: Orange Box (Flow Generation)")
+        print("=" * 50)
+
+        # Initialize at orange box node - will generate decision flow for the service
+        await flow_manager.initialize(create_orange_box_node())
     else:
         # Default to greeting node
         await flow_manager.initialize(create_greeting_node())

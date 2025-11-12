@@ -30,33 +30,39 @@ async def send_booking_confirmation_sms_async(booking_response: Dict, booking_da
         patient_name = patient_info.get('name', '').strip()  # Only first name for SMS greeting
         patient_phone = patient_info.get("phone", "")
 
-        # Get service and center info
-        service_name = selected_services[0].name if selected_services else "Appointment"
-
-        # Get slot details (use first slot for SMS)
-        if booked_slots:
-            slot = booked_slots[0]
-            # Format the date and time for SMS
-            from services.timezone_utils import utc_to_italian_display
-            italian_datetime = utc_to_italian_display(slot['start_time'])
-            booking_date = italian_datetime.split(' ')[0] if italian_datetime else "TBD"
-            booking_time = italian_datetime.split(' ')[1] if len(italian_datetime.split(' ')) > 1 else "TBD"
-        else:
-            booking_date = "TBD"
-            booking_time = "TBD"
-
         # Get center name from flow state (would need flow_manager for this)
         center_name = "Cerba Healthcare"  # Fallback
 
-        # Prepare SMS data
+        # Format all appointments for SMS (like booking completion message)
+        from services.timezone_utils import utc_to_italian_display
+        appointments_list = []
+
+        for slot in booked_slots:
+            service_name = slot.get('service_name', 'Servizio')
+            italian_datetime = utc_to_italian_display(slot['start_time'])
+
+            if italian_datetime:
+                booking_date = italian_datetime.split(' ')[0]
+                booking_time = italian_datetime.split(' ')[1] if len(italian_datetime.split(' ')) > 1 else "TBD"
+            else:
+                booking_date = "TBD"
+                booking_time = "TBD"
+
+            appointments_list.append({
+                "service_name": service_name,
+                "date": booking_date,
+                "time": booking_time
+            })
+
+        logger.info(f"📱 SMS will include {len(appointments_list)} appointments")
+
+        # Prepare SMS data with all appointments
         sms_data = {
             "patient_name": patient_name,
             "patient_phone": patient_phone,
-            "service_name": service_name,
             "center_name": center_name,
-            "booking_date": booking_date,
-            "booking_time": booking_time,
-            "booking_id": booking_id
+            "booking_id": booking_id,
+            "appointments": appointments_list  # List of all appointments
         }
 
         logger.info(f"📱 Sending SMS confirmation to {patient_phone} for booking {booking_id}")
@@ -489,10 +495,12 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
         }, create_error_node("Missing required information for booking. Please start over.")
 
     try:
-        # Store booking parameters for processing node
+        # Store booking parameters for processing node (including service_groups for proper slot mapping)
         flow_manager.state["pending_booking_params"] = {
             "selected_services": selected_services,
             "booked_slots": booked_slots,
+            "service_groups": flow_manager.state.get("service_groups", []),
+            "booking_scenario": flow_manager.state.get("booking_scenario", "legacy"),
             "patient_name": patient_name,
             "patient_surname": patient_surname,
             "patient_phone": patient_phone,
@@ -545,6 +553,8 @@ async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: 
         # Extract parameters
         selected_services = params["selected_services"]
         booked_slots = params["booked_slots"]
+        service_groups = params.get("service_groups", [])
+        booking_scenario = params.get("booking_scenario", "legacy")
         patient_name = params["patient_name"]
         patient_surname = params["patient_surname"]
         patient_phone = params["patient_phone"]
@@ -588,13 +598,36 @@ async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: 
             "marketing_authorization": marketing_auth
         }
 
-        # Add health services with their slot UUIDs
-        for i, service in enumerate(selected_services):
-            if i < len(booked_slots):
-                booking_data["health_services"].append({
-                    "uuid": service.uuid,
-                    "slot": booked_slots[i]["slot_uuid"]
-                })
+        # Add health services with their slot UUIDs (group-aware mapping)
+        logger.info(f"🔍 BOOKING API MAPPING: Scenario={booking_scenario}, Groups={len(service_groups)}, Slots={len(booked_slots)}")
+
+        if booking_scenario in ["bundle", "separate", "combined"] and service_groups:
+            # Use service_groups structure for proper slot mapping
+            for group_index, service_group in enumerate(service_groups):
+                if group_index < len(booked_slots):
+                    slot_uuid = booked_slots[group_index]["slot_uuid"]
+                    group_services = service_group["services"]
+                    is_bundled = service_group.get("is_group", False)
+
+                    logger.info(f"   Group {group_index}: {len(group_services)} services, bundled={is_bundled}, slot={slot_uuid}")
+
+                    # Add ALL services in this group with the SAME slot UUID
+                    for service in group_services:
+                        booking_data["health_services"].append({
+                            "uuid": service.uuid,
+                            "slot": slot_uuid
+                        })
+                        logger.info(f"      → Mapped {service.name} (UUID: {service.uuid}) to slot {slot_uuid}")
+        else:
+            # Legacy mode: 1:1 mapping
+            logger.info(f"   Using legacy 1:1 mapping")
+            for i, service in enumerate(selected_services):
+                if i < len(booked_slots):
+                    booking_data["health_services"].append({
+                        "uuid": service.uuid,
+                        "slot": booked_slots[i]["slot_uuid"]
+                    })
+                    logger.info(f"      → Mapped {service.name} (UUID: {service.uuid}) to slot {booked_slots[i]['slot_uuid']}")
 
         logger.info(f"📝 Creating final booking with data: {booking_data}")
 

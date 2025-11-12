@@ -94,14 +94,20 @@ async def perform_center_search_and_transition(args: FlowArgs, flow_manager: Flo
 
         # Format date for API
         dob_formatted = date_of_birth.replace("-", "")
-        
-        # Call Cerba API with all selected services
-        health_centers = cerba_api.get_health_centers(
-            health_services=service_uuids,
-            gender=gender,
-            date_of_birth=dob_formatted,
-            address=address
+
+        # Call Cerba API with all selected services - run in executor to avoid blocking
+        import asyncio
+        loop = asyncio.get_event_loop()
+        logger.info(f"🔍 Starting non-blocking health center search for {len(service_uuids)} services in {address}")
+        health_centers = await loop.run_in_executor(
+            None,  # Use default thread pool executor
+            cerba_api.get_health_centers,
+            service_uuids,
+            gender,
+            dob_formatted,
+            address
         )
+        logger.info(f"✅ Health center search completed: found {len(health_centers) if health_centers else 0} centers")
         
         if health_centers:
             flow_manager.state["final_health_centers"] = health_centers[:3]  # Top 3 centers
@@ -592,29 +598,29 @@ async def update_date_and_search_slots(args: FlowArgs, flow_manager: FlowManager
         # Format DOB for API
         dob_formatted = patient_dob.replace("-", "")
 
-        # Determine service UUIDs based on booking scenario (same logic as perform_slot_search_and_transition)
-        booking_scenario = flow_manager.state.get("booking_scenario", "legacy")
+        # Determine service UUIDs - ALWAYS use current_group_index to get correct service
+        current_group_index = flow_manager.state.get("current_group_index", 0)
         service_groups = flow_manager.state.get("service_groups", [])
+        selected_services = flow_manager.state.get("selected_services", [])
 
-        if booking_scenario == "bundle":
-            all_services = service_groups[0]["services"]
-            uuid_exam = [svc.uuid for svc in all_services]
-            current_service_name = " + ".join([svc.name for svc in all_services])
-        elif booking_scenario == "combined":
-            single_service = service_groups[0]["services"][0]
-            uuid_exam = [single_service.uuid]
-            current_service_name = single_service.name
-        elif booking_scenario == "separate":
-            current_group_index = flow_manager.state.get("current_group_index", 0)
+        # Use service groups if available (bundle/combined/separate scenarios)
+        if service_groups and current_group_index < len(service_groups):
             current_group = service_groups[current_group_index]
             current_group_services = current_group["services"]
             uuid_exam = [svc.uuid for svc in current_group_services]
             current_service_name = " + ".join([svc.name for svc in current_group_services])
-        else:  # legacy
+            logger.info(f"🔍 DATE UPDATE: Using service group {current_group_index} - {current_service_name}")
+        else:
+            # Fallback to legacy single-service logic
             current_service_index = flow_manager.state.get("current_service_index", 0)
-            current_service = selected_services[current_service_index]
-            uuid_exam = [current_service.uuid]
-            current_service_name = current_service.name
+            if selected_services and current_service_index < len(selected_services):
+                current_service = selected_services[current_service_index]
+                uuid_exam = [current_service.uuid]
+                current_service_name = current_service.name
+                logger.info(f"🔍 DATE UPDATE: Using legacy service {current_service_index} - {current_service_name}")
+            else:
+                logger.error("❌ No service found for slot search!")
+                return {"success": False, "message": "Service not found"}, None
 
         logger.info(f"🔍 Searching slots for {current_service_name} on {preferred_date}")
 
@@ -641,6 +647,9 @@ async def update_date_and_search_slots(args: FlowArgs, flow_manager: FlowManager
 
             user_preferred_date = flow_manager.state.get("preferred_date")
             time_preference_state = flow_manager.state.get("time_preference", "any time")
+
+            # Get booking scenario from state
+            booking_scenario = flow_manager.state.get("booking_scenario", "legacy")
 
             # Create display service object
             if booking_scenario != "legacy":
@@ -1289,12 +1298,44 @@ async def perform_slot_booking_and_transition(args: FlowArgs, flow_manager: Flow
         start_time = selected_slot["start_time"]
         end_time = selected_slot["end_time"]
         providing_entity_availability = selected_slot["providing_entity_availability_uuid"]
-        
+
         # Convert datetime format for create_slot function
         start_slot = start_time.replace("T", " ").replace("+00:00", "")
         end_slot = end_time.replace("T", " ").replace("+00:00", "")
-        
-        logger.info(f"📝 Creating slot reservation: {start_slot} to {end_slot}")
+
+        # DETAILED SLOT VERIFICATION LOGGING
+        logger.info("=" * 80)
+        logger.info("🔍 SLOT RESERVATION VERIFICATION")
+        logger.info("=" * 80)
+        logger.info(f"📋 Full Selected Slot Data:")
+        logger.info(f"   Raw slot object: {selected_slot}")
+        logger.info(f"   Start Time (original): {start_time}")
+        logger.info(f"   End Time (original): {end_time}")
+        logger.info(f"   PEA UUID: {providing_entity_availability}")
+        logger.info(f"   Converted Start: {start_slot}")
+        logger.info(f"   Converted End: {end_slot}")
+
+        # Verify against available_slots to confirm LLM didn't hallucinate
+        available_slots = flow_manager.state.get("available_slots", [])
+        slot_found_in_available = False
+        for idx, avail_slot in enumerate(available_slots):
+            if (avail_slot.get("start_time") == start_time and
+                avail_slot.get("providing_entity_availability_uuid") == providing_entity_availability):
+                slot_found_in_available = True
+                logger.info(f"✅ VERIFIED: Slot exists in available_slots at index {idx}")
+                logger.info(f"   Available slot data: {avail_slot}")
+                break
+
+        if not slot_found_in_available:
+            logger.error(f"❌ WARNING: Selected slot NOT found in available_slots!")
+            logger.error(f"   This might be LLM hallucination!")
+            logger.error(f"   Available slots count: {len(available_slots)}")
+            logger.error(f"   First 3 available slots:")
+            for idx, avail_slot in enumerate(available_slots[:3]):
+                logger.error(f"      [{idx}] Start: {avail_slot.get('start_time')}, PEA: {avail_slot.get('providing_entity_availability_uuid')}")
+
+        logger.info("=" * 80)
+        logger.info(f"📝 Proceeding with slot reservation: {start_slot} to {end_slot}")
 
         # Call create_slot function (this reserves the slot)
         status_code, slot_uuid, created_at = create_slot(start_slot, end_slot, providing_entity_availability)
@@ -1311,14 +1352,48 @@ async def perform_slot_booking_and_transition(args: FlowArgs, flow_manager: Flow
                 # Fallback to legacy behavior
                 current_service_name = selected_services[current_service_index].name if selected_services else "Service"
 
-            logger.info(f"📝 Storing booked slot: {current_service_name} at {start_time}")
+            # Extract base price from current selected_slot
+            is_cerba_member = flow_manager.state.get("is_cerba_member", False)
+            health_services = selected_slot.get("health_services", [])
+
+            slot_price = 0
+            if health_services:
+                service = health_services[0]
+                base_price = service.get("cerba_card_price") if is_cerba_member else service.get("price", 0)
+                if base_price is None:
+                    base_price = service.get("price", 0)
+
+                # BUNDLED SERVICE PRICE MULTIPLICATION
+                # If this is a bundled group with multiple services, multiply the base price
+                booking_scenario = flow_manager.state.get("booking_scenario", "legacy")
+                service_groups = flow_manager.state.get("service_groups", [])
+                current_group_index = flow_manager.state.get("current_group_index", 0)
+
+                if booking_scenario in ["bundle", "separate"] and service_groups and current_group_index < len(service_groups):
+                    current_group = service_groups[current_group_index]
+                    is_bundled = current_group.get("is_group", False)
+                    service_count = len(current_group["services"])
+
+                    if is_bundled and service_count > 1:
+                        # Multiply base price by number of services in bundle
+                        slot_price = base_price * service_count
+                        logger.info(f"💰 BUNDLED PRICING: {base_price}€ × {service_count} services = {slot_price}€")
+                    else:
+                        slot_price = base_price
+                        logger.info(f"💰 SINGLE SERVICE PRICING: {slot_price}€")
+                else:
+                    # Legacy scenario or no bundling
+                    slot_price = base_price
+                    logger.info(f"💰 LEGACY PRICING: {slot_price}€")
+
+            logger.info(f"📝 Storing booked slot: {current_service_name} at {start_time} - Price: {slot_price}€")
 
             flow_manager.state["booked_slots"].append({
                 "slot_uuid": slot_uuid,
                 "service_name": current_service_name,  # Use combined name for bundle/separate
                 "start_time": start_time,
                 "end_time": end_time,
-                "price": flow_manager.state.get("slot_price", 0)
+                "price": slot_price  # Use extracted price, not cached state["slot_price"]
             })
 
             logger.success(f"✅ Slot reserved successfully: {slot_uuid}")
@@ -1426,7 +1501,8 @@ async def perform_slot_booking_and_transition(args: FlowArgs, flow_manager: Flow
                 # Enhanced user message with clear service indicators
                 just_booked_ordinal = current_group_index + 1  # The appointment we just booked (1-based)
                 next_appointment_ordinal = next_group_index + 1  # The appointment we're about to book (1-based)
-                user_message = f"Perfect! Appointment {just_booked_ordinal} of {total_groups} has been successfully booked: {current_service_name}. Now booking appointment {next_appointment_ordinal} of {total_groups}: {next_group_service_names}. Searching for available times on the same day, starting 1 hour after your first appointment."
+                user_message = f"Perfetto! L'appuntamento {just_booked_ordinal} di {total_groups} è stato prenotato con successo: {current_service_name}. Ora prenoto l'appuntamento {next_appointment_ordinal} di {total_groups}: {next_group_service_names}. Cerco orari disponibili nello stesso giorno, a partire da 1 ora dopo il primo appuntamento."
+
 
                 return {
                     "success": True,
@@ -1802,18 +1878,10 @@ async def search_different_date_handler(args: FlowArgs, flow_manager: FlowManage
         flow_manager.state["preferred_date"] = new_date
         flow_manager.state["time_preference"] = time_preference
 
-        # Get current service info
-        current_service_index = flow_manager.state.get("current_service_index", 0)
+        # Get current service info - ALWAYS use current_group_index
+        current_group_index = flow_manager.state.get("current_group_index", 0)
+        service_groups = flow_manager.state.get("service_groups", [])
         selected_services = flow_manager.state.get("selected_services", [])
-
-        if not selected_services or current_service_index >= len(selected_services):
-            logger.error("❌ No service information found")
-            return {
-                "success": False,
-                "message": "Service information not found. Please start the booking process again."
-            }, None
-
-        current_service = selected_services[current_service_index]
         selected_center = flow_manager.state.get("selected_center")
 
         if not selected_center:
@@ -1823,13 +1891,37 @@ async def search_different_date_handler(args: FlowArgs, flow_manager: FlowManage
                 "message": "Health center information not found. Please start the booking process again."
             }, None
 
+        # Determine which service(s) to search slots for
+        if service_groups and current_group_index < len(service_groups):
+            # Use service groups if available (bundle/combined/separate scenarios)
+            current_group = service_groups[current_group_index]
+            current_group_services = current_group["services"]
+            uuid_exam = [svc.uuid for svc in current_group_services]
+            current_service_name = " + ".join([svc.name for svc in current_group_services])
+            # Use first service from group as display service
+            current_service = current_group_services[0]
+            logger.info(f"🔍 DIFFERENT DATE: Using service group {current_group_index} - {current_service_name}")
+        else:
+            # Fallback to legacy single-service logic
+            current_service_index = flow_manager.state.get("current_service_index", 0)
+            if not selected_services or current_service_index >= len(selected_services):
+                logger.error("❌ No service information found")
+                return {
+                    "success": False,
+                    "message": "Service information not found. Please start the booking process again."
+                }, None
+            current_service = selected_services[current_service_index]
+            uuid_exam = [current_service.uuid]
+            current_service_name = current_service.name
+            logger.info(f"🔍 DIFFERENT DATE: Using legacy service {current_service_index} - {current_service_name}")
+
         # Perform new slot search with the requested date
-        logger.info(f"🔎 Searching slots for {current_service.name} on {new_date}")
+        logger.info(f"🔎 Searching slots for {current_service_name} on {new_date}")
 
         slots_response = list_slot(
             health_center_uuid=selected_center.uuid,
             date_search=new_date,
-            uuid_exam=[current_service.uuid],
+            uuid_exam=uuid_exam,  # Use group-aware UUID list
             gender=flow_manager.state.get("patient_gender", "m"),
             date_of_birth=flow_manager.state.get("patient_dob", "1980-04-13")
         )

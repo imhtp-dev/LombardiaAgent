@@ -58,8 +58,17 @@ async def perform_health_services_search_and_transition(args: FlowArgs, flow_man
                 "services": []
             }, create_search_retry_node("Please provide the name of a service to search for.")
 
-        # Use fuzzy search service - this is the actual API call that takes time
-        search_result = fuzzy_search_service.search_services(search_term, limit)
+        # Use fuzzy search service - run in executor to avoid blocking event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        logger.info(f"🔍 Starting non-blocking fuzzy search for: '{search_term}' (limit: {limit})")
+        search_result = await loop.run_in_executor(
+            None,  # Use default thread pool executor
+            fuzzy_search_service.search_services,
+            search_term,
+            limit
+        )
+        logger.info(f"✅ Search completed: found={search_result.found}, count={search_result.count}")
         print(search_result)
 
         if search_result.found and search_result.services:
@@ -152,8 +161,17 @@ async def refine_search_and_transition(args: FlowArgs, flow_manager: FlowManager
             "message": "Please provide a more specific service name"
         }, None
     
-    # Perform new search with refined term
-    search_result = fuzzy_search_service.search_services(refined_term, 3)
+    # Perform new search with refined term - run in executor to avoid blocking
+    import asyncio
+    loop = asyncio.get_event_loop()
+    logger.info(f"🔍 Starting non-blocking refined search for: '{refined_term}'")
+    search_result = await loop.run_in_executor(
+        None,
+        fuzzy_search_service.search_services,
+        refined_term,
+        3
+    )
+    logger.info(f"✅ Refined search completed: found={search_result.found}, count={search_result.count}")
     
     if search_result.found and search_result.services:
         # Store new search results

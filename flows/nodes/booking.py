@@ -50,8 +50,8 @@ def create_orange_box_node() -> NodeConfig:
                 properties={},
                 required=[]
             )
-        ],
-        respond_immediately=True  # Automatically trigger flow generation
+        ]
+        # respond_immediately=True  # DISABLED FOR TESTING - enable in production
     )
 
 
@@ -63,50 +63,105 @@ def create_flow_navigation_node(generated_flow: dict, service_name: str) -> Node
             "role": "system",
             "content": f"""You are navigating a decision flow for the health service: {service_name}
 
-FOLLOW THIS EXACT FLOW STRUCTURE: {json.dumps(generated_flow, indent=2)}
+🔥 MANDATORY: FOLLOW THIS EXACT JSON FLOW STRUCTURE STEP-BY-STEP 🔥
 
-IMPORTANT INSTRUCTIONS:
-1. Start with the main flow message
-2. Present questions exactly as written in the flow
-3. Follow yes/no branches based on user responses
-4. When presenting service options, show ONLY service names from list_health_services - NEVER mention UUIDs
-5. If list_health_services is empty in a question but contains services in response branches, show those services when asking the question
-6. When user selects additional services, track them internally with their UUIDs, codes, AND sectors
-7. When user answers "yes" to specialist visit questions, include those specialist services
-8. When reaching a final action (save_cart, etc.), call finalize_services function
-9. CRITICAL: include ALL services chosen by user during conversation
+{json.dumps(generated_flow, indent=2)}
 
-**CRITICAL RULES:**
-- NEVER mention UUIDs to users - they are internal only
-- NEVER use 1, 2, 3 or numbers when presenting services
-- List only service names separated by commas or line breaks, without numerical prefixes
-- If a question is about services but list_health_services is empty, check response branches for available services to display
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 STEP-BY-STEP NAVIGATION PROTOCOL (MUST FOLLOW STRICTLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**SECTOR AND CODE EXTRACTION (CRITICAL):**
-The flow structure contains parallel arrays that MUST be kept in sync:
-- list_health_services: ["Service A", "Service B", "Service C"]
-- list_health_servicesUUID: ["uuid-a", "uuid-b", "uuid-c"]
-- health_service_code: ["code-a", "code-b", "code-c"]
-- sector: ["optionals", "prescriptions", "optionals"]
+**STEP 1: START AT ROOT LEVEL**
+- Begin by presenting the "message" field from the ROOT level of the JSON
+- This is your first question to the user
+- DO NOT skip this step - always start here
 
-When user selects a service, you MUST extract all three values at the same index:
-Example: If user chooses "Service B" (index 1 in list_health_services):
-- uuid = list_health_servicesUUID[1] = "uuid-b"
-- code = health_service_code[1] = "code-b"
-- sector = sector[1] = "prescriptions"
+**STEP 2: WAIT FOR USER RESPONSE**
+- After presenting the message, WAIT for user to answer
+- User will answer either YES or NO (or select from service options)
+- DO NOT proceed to next step until user responds
 
-When calling finalize_services function, you MUST include uuid, name, code, AND sector for EACH service.
+**STEP 3: NAVIGATE TO CORRECT BRANCH**
+- If user says YES → navigate into the "yes" branch object
+- If user says NO → navigate into the "no" branch object
+- If user selects a service from list_health_services → track that service (uuid, code, sector) AND continue with YES branch
 
-Flow decision logic:
-- If user chooses additional services from main list, extract uuid+code+sector for those services
-- If user answers YES to specialist visit questions, extract uuid+code+sector for specialist services from that branch
-- If user answers NO, follow the "no" branch accordingly
+**STEP 4: CHECK CURRENT POSITION IN TREE**
+At your new position in the tree, check what exists:
+- Does this level have a "message" field? → Present it and wait for response (go back to STEP 2)
+- Does this level have "list_health_services"? → Present the service options
+- Does this level have "action": "save_cart"? → Call finalize_services function (FINAL STEP)
+- Does this level ONLY have text without yes/no branches? → This is an END point, call finalize_services
 
-FUNDAMENTAL: When asking questions about services:
-- If current question has list_health_services with items, show those services
-- If current question has empty list_health_services but "yes" or "no" branches contain list_health_services, show THOSE services in your question
-- Example: question asks "Would you like a specialist consultation?" and "yes" branch has list_health_services: ["Cardiology Visit"], so say "Would you like to book a specialist visit? The available specialist visit is: Cardiology Visit"
-- Always show only service names, never UUIDs, never numbers
+**STEP 5: TRACK ALL SELECTED SERVICES**
+Throughout navigation, maintain a list of ALL services user selected:
+- Main service (from root "list_health_services" or "main_exam")
+- Additional services from any "list_health_services" arrays
+- Specialist visits if user answered YES to specialist questions
+
+For EACH service, extract from parallel arrays at the SAME index:
+- uuid from list_health_servicesUUID[index]
+- name from list_health_services[index]
+- code from health_service_code[index]
+- sector from sector[index]
+
+**STEP 6: RECOGNIZE END CONDITIONS**
+You've reached the end when you encounter ANY of these:
+- "action": "save_cart" → Call finalize_services immediately
+- A message with NO "yes" or "no" branches below it → Call finalize_services
+- A terminal node (like "It is not possible to proceed...") → Call finalize_services with empty additional_services
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 EXAMPLE NAVIGATION FLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Using your JSON structure:
+
+1️⃣ START: Present root "message"
+   → "This exam requires a prescription from a general practitioner or specialist. Do you have a medical prescription?"
+
+2️⃣ USER SAYS: "Yes"
+   → Navigate to json["yes"] branch
+
+3️⃣ PRESENT: json["yes"]["message"]
+   → "Does your prescription include any of the following additional services you want to book?"
+   → Show services: "RX del Piede Destro, RX del Piede Destro Sotto carico, ..." (NO NUMBERS!)
+
+4️⃣ USER SAYS: "Yes, I want RX del Piede Destro"
+   → Track service: uuid="ea65a7bf-58e4-4ac0-9041-61a5088cefb6", code="RRAD0049", sector="optionals"
+   → Navigate to json["yes"]["yes"] branch
+
+5️⃣ PRESENT: json["yes"]["yes"]["message"]
+   → "Performing a diagnostic exam does not include the visit. Do you want to book a specialist visit to review the booked exams?"
+   → Show service: "Visita Ortopedica (Prima Visita)"
+
+6️⃣ USER SAYS: "Yes"
+   → Track specialist service: uuid="1cc793b7-4a8b-4c54-ac09-3c7ca7e5a168", code="PORT0001", sector="opinions"
+   → Navigate to json["yes"]["yes"]["yes"] branch
+
+7️⃣ FOUND: "action": "save_cart"
+   → END REACHED! Call finalize_services with ALL tracked services
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 CRITICAL RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. **NEVER SKIP LEVELS**: You must present EVERY "message" field you encounter while navigating the tree
+2. **NEVER MENTION UUIDs**: Users see only service names, UUIDs are internal tracking only
+3. **NEVER USE NUMBERS**: Don't say "1. Service A, 2. Service B" - just say "Service A, Service B"
+4. **ALWAYS EXTRACT PARALLEL ARRAYS**: When user picks a service, get uuid, code, AND sector at same index
+5. **TRACK EVERYTHING**: Keep a mental list of ALL services selected throughout the conversation (including optional services, specialist visits, prescriptions, etc.)
+6. **FOLLOW YES/NO STRICTLY**: If user says YES, go to "yes" branch. If NO, go to "no" branch. Never mix them up.
+7. **CALL finalize_services ONLY AT THE END**: When you reach "action": "save_cart" or a terminal node, include ALL tracked services in additional_services array
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎭 PRESENTATION STYLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Present messages EXACTLY as written in the "message" fields
+- Speak naturally and conversationally like a human healthcare assistant
+- When listing services, use natural language: "We have X, Y, and Z available"
+- Never sound robotic or mention technical terms like "UUID", "sector", "branch"
 
 Be conversational but follow the flow structure carefully. Always speak like a human, not a robot. {settings.language_config}"""
         }],
@@ -118,7 +173,7 @@ Be conversational but follow the flow structure carefully. Always speak like a h
             FlowsFunctionSchema(
                 name="finalize_services",
                 handler=finalize_services_and_search_centers,
-                description="Finalize ALL service selections (including specialist visits) and proceed to center search",
+                description="Finalize ALL service selections and proceed to center search",
                 properties={
                     "additional_services": {
                         "type": "array",
@@ -132,11 +187,7 @@ Be conversational but follow the flow structure carefully. Always speak like a h
                             },
                             "required": ["uuid", "name", "code", "sector"]
                         },
-                        "description": "ALL additional services selected during flow navigation with their uuid, name, code, and sector extracted from the parallel arrays in the flow structure"
-                    },
-                    "specialist_visit_chosen": {
-                        "type": "boolean",
-                        "description": "Whether the user chose to book a specialist visit"
+                        "description": "ALL services selected during flow navigation. Extract uuid, name, code, and sector from the parallel arrays at the SAME index in the flow JSON. Include ALL services user selected: optionals, prescriptions, preliminary visits, specialist visits (opinions sector), etc."
                     },
                     "flow_path": {
                         "type": "string",
@@ -169,8 +220,8 @@ def create_final_center_search_node() -> NodeConfig:
                 properties={},
                 required=[]
             )
-        ],
-        respond_immediately=True  # Automatically trigger the search
+        ]
+        # respond_immediately=True  # DISABLED FOR TESTING - enable in production
     )
 
 
@@ -325,7 +376,7 @@ def create_collect_datetime_node(service_name: str = None, is_multi_service: boo
         pre_actions=[
             {
                 "type": "tts_say",
-                "text": "Great! Now let's schedule your appointment."
+                "text": "Ottimo! Ora fissiamo il tuo appuntamento."
             }
         ],
         role_messages=[{
@@ -416,8 +467,8 @@ def create_slot_search_node() -> NodeConfig:
                 properties={},
                 required=[]
             )
-        ],
-        respond_immediately=True  # Automatically trigger slot search
+        ]
+        # respond_immediately=True  # DISABLED FOR TESTING - enable in production
     )
 
 
@@ -524,7 +575,7 @@ def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cer
             other_dates_count = len(other_dates)
 
             # Build task content with LLM instructions
-            task_content = f"""I found {len(tomorrow_slots)} available appointments for TOMORROW ({formatted_date}).
+            task_content = f"""The available appointments for {service.name} are {len(tomorrow_slots)} slots for TOMORROW ({formatted_date}).
 
 🕐 The most recent (earliest) appointment available is at {earliest_time}.
 
@@ -629,7 +680,7 @@ Ask the user if any of these times work for them, or if they'd like to see more 
                 formatted_date = day_slots[0]['formatted_date']
 
                 # Build task content with LLM instructions for progressive display
-                task_content = f"""For {formatted_date} in the {time_period}, I found {len(filtered_slots)} available time slots.
+                task_content = f"""For {service.name} on {formatted_date} in the {time_period}, I found {len(filtered_slots)} available time slots.
 
 IMPORTANT INSTRUCTIONS:
 1. Present only the FIRST 4-6 time slots to the user initially
@@ -646,7 +697,7 @@ Ask the user if any of the shown times work for them, or if they'd like to see m
 
 Ask the user which time works best for them."""
 
-                logger.info(f"✅ PERFECT MATCH: Sending ALL {len(selected_slots_for_llm)} {time_period} slots on {user_preferred_date}")
+                #logger.info(f"✅ PERFECT MATCH: Sending ALL {len(selected_slots_for_llm)} {time_period} slots on {user_preferred_date}")
             else:
                 # No slots for preferred time, offer alternatives
                 other_time_slots = filter_slots_by_time_preference(day_slots, "afternoon" if time_preference == "morning" else "morning")
@@ -657,7 +708,7 @@ Ask the user which time works best for them."""
                     # SEND ALL alternative time slots (no limit)
                     selected_slots_for_llm = other_time_slots
 
-                    task_content = f"""Sorry, no {time_preference} slots available on {formatted_date}. However, we have {len(other_time_slots)} {alternative_time} appointments available.
+                    task_content = f"""Sorry, no {time_preference} slots available for {service.name} on {formatted_date}. However, we have {len(other_time_slots)} {alternative_time} appointments available.
 
 IMPORTANT INSTRUCTIONS:
 1. Present only the FIRST 4-6 time slots to the user initially
@@ -680,7 +731,7 @@ Ask the user which time works best for them."""
                     available_dates = [f"{slots_by_date[date][0]['formatted_date']} ({len(slots_by_date[date])} slots)"
                                      for date in sorted(slots_by_date.keys()) if date != user_preferred_date]
                     dates_text = "\n- ".join(available_dates)
-                    task_content = f"Sorry, no appointments available on {formatted_date}. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer?"
+                    task_content = f"Sorry, no appointments available for {service.name} on {formatted_date}. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer?"
                     logger.info(f"❌ NO SLOTS: User's preferred date has no slots in any time period")
         else:
             # No time preference, show all slots for the day - SEND ALL (no limit)
@@ -691,7 +742,7 @@ Ask the user which time works best for them."""
             morning_slots = [s for s in day_slots if 8 <= s['start_dt'].hour < 12]
             afternoon_slots = [s for s in day_slots if 12 <= s['start_dt'].hour < 19]
 
-            task_content = f"""For {formatted_date}, I found {len(day_slots)} available time slots.
+            task_content = f"""For {service.name} on {formatted_date}, I found {len(day_slots)} available time slots.
 
 IMPORTANT INSTRUCTIONS:
 1. Present only the FIRST 4-6 time slots to the user initially
@@ -729,7 +780,7 @@ Ask the user which time works best for them."""
 
         dates_text = "\n- ".join(available_dates)
         if user_preferred_date:
-            task_content = f"Sorry, no appointments available on your preferred date. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Once you choose a date, I'll show you the available times for that date."
+            task_content = f"Sorry, no appointments available for {service.name} on your preferred date. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Once you choose a date, I'll show you the available times for that date."
             logger.info(f"❌ DATE UNAVAILABLE: User's preferred date {user_preferred_date} not in available dates")
         else:
             task_content = f"We have appointments available on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Then I'll show you the available times."
@@ -1037,15 +1088,19 @@ def create_booking_summary_confirmation_node(selected_services: List[HealthServi
         # Get service name from slot (supports bundle/combined/separate scenarios)
         service_name = slot.get("service_name", "Service")
 
-        # Get the actual service price from the slot data
+        # Get the price from booked_slots (this is the correct multiplied price for bundles)
         service_cost = slot.get('price', 0)
+
+        # Fallback to health_services only if price is missing from booked_slots
         if service_cost == 0 and 'health_services' in slot and len(slot['health_services']) > 0:
-            # Try to get price from health_services within the slot
             health_service = slot['health_services'][0]
             if is_cerba_member:
                 service_cost = health_service.get('cerba_card_price', health_service.get('price', 0))
             else:
                 service_cost = health_service.get('price', 0)
+            logger.warning(f"⚠️ Using fallback price from health_services for {service_name}: {service_cost}€")
+        else:
+            logger.info(f"✅ Using stored price for {service_name}: {service_cost}€")
 
         services_text.append(f"• {service_name} il {formatted_date} alle {formatted_time} - {int(service_cost)} euro")
 
