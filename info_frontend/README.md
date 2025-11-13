@@ -2,16 +2,6 @@
 
 A modern, professional dashboard for managing voice agent operations with Google-level UI/UX design.
 
-## 📸 Features
-
-- **Clean & Minimalistic Design** - Google-level UI/UX
-- **Fully Responsive** - Works on mobile, tablet, and desktop
-- **Professional Icons** - Lucide React icons throughout
-- **Micro-Interactions** - Hover effects, animations, transitions
-- **7 Complete Pages** - All fully functional with dummy data
-- **TypeScript** - Type-safe code throughout
-- **Tailwind CSS 4** - Modern styling
-- **Shadcn UI** - Beautiful component library
 
 ## 🚀 Quick Start
 
