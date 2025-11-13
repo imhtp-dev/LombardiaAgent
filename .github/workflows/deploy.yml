@@ -40,7 +40,7 @@ jobs:
           echo "git_hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "version=v$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image
+      - name: Build and push Backend Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -52,6 +52,18 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
+
+      - name: Build and push Frontend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/dashboard-frontend:latest
+            ${{ env.REGISTRY }}/dashboard-frontend:${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Deploy to Azure VM
         if: github.ref == 'refs/heads/main'
@@ -71,9 +83,10 @@ jobs:
             echo "Logging in to Docker Hub..."
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-            # Pull latest image
-            echo "Pulling latest image..."
+            # Pull latest images
+            echo "Pulling latest images..."
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            docker pull ${{ env.REGISTRY }}/dashboard-frontend:latest
             
             # Create nginx logs directory if not exists
             mkdir -p logs/nginx
@@ -117,8 +130,9 @@ jobs:
         if: always()
         run: |
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend Image**: ${{ env.REGISTRY }}/dashboard-frontend:latest" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Architecture**: Nginx Load Balancer + 3 Pipecat Agents" >> $GITHUB_STEP_SUMMARY
+          echo "- **Architecture**: Nginx LB + 3 Booking Agents + Info Agent + Dashboard" >> $GITHUB_STEP_SUMMARY
           echo "- **Deployed to**: ${{ env.AZURE_VM_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Capacity**: 3 simultaneous calls" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ports**: 8000 (Booking), 8081 (Info API), 3000 (Dashboard)" >> $GITHUB_STEP_SUMMARY
