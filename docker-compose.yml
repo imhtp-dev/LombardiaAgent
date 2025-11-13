@@ -181,7 +181,7 @@ services:
       dockerfile: Dockerfile.frontend
     container_name: dashboard-frontend
     ports:
-      - "3000:3000"
+      - "8082:3000"
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://info-agent:8081/api

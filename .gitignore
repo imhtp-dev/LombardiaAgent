@@ -16,6 +16,8 @@ parts/
 sdist/
 var/
 wheels/
+# Allow info_frontend/lib (Next.js needs this)
+!info_frontend/lib/
 share/python-wheels/
 MANIFEST
 
