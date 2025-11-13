@@ -1,4 +1,4 @@
-# 🎉 Voilà Voice Dashboard - Next.js Version
+# 🎉 Voilà Voice Dashboard -
 
 A modern, professional dashboard for managing voice agent operations with Google-level UI/UX design.
 
