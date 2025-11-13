@@ -53,7 +53,6 @@ In Supabase Dashboard:
 
 ## 🔧 Update Environment Variables
 
-### For FastAPI Backend (`app.py`)
 
 Update `.env`:
 
