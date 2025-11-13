@@ -9,64 +9,120 @@ on:
 
 env:
   REGISTRY: rudyimhtpdev
-  IMAGE_NAME: voicebooking_piemo1
+  BACKEND_IMAGE: voicebooking_piemo1
+  FRONTEND_IMAGE: dashboard-frontend
   AZURE_VM_HOST: 98.66.139.255
   AZURE_VM_USER: azureuser
 
 jobs:
-  build-and-deploy:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Detect what changed
+        id: changes
+        run: |
+          # Check if backend files changed
+          if git diff --name-only HEAD^ HEAD | grep -E '^(info_agent|config|flows|models|pipeline|services|utils|bot\.py|requirements\.txt|Dockerfile)'; then
+            echo "backend=true" >> $GITHUB_OUTPUT
+            echo "✅ Backend files changed - will rebuild"
+          else
+            echo "backend=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Backend unchanged - skipping build"
+          fi
+          
+          # Check if frontend files changed
+          if git diff --name-only HEAD^ HEAD | grep -E '^(info_frontend|Dockerfile\.frontend)'; then
+            echo "frontend=true" >> $GITHUB_OUTPUT
+            echo "✅ Frontend files changed - will rebuild"
+          else
+            echo "frontend=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Frontend unchanged - skipping build"
+          fi
+      
+      - name: Generate version tag
+        id: meta
+        run: |
+          echo "version=v$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+  build-backend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:latest
-
+      
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Generate build metadata
-        id: meta
-        run: |
-          echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
-          echo "git_hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "version=v$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Build and push Backend Docker image
+      
+      - name: Build and push Backend
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ needs.detect-changes.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
-      - name: Build and push Frontend Docker image
+  build-frontend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile.frontend
           push: true
           tags: |
-            ${{ env.REGISTRY }}/dashboard-frontend:latest
-            ${{ env.REGISTRY }}/dashboard-frontend:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ needs.detect-changes.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  deploy:
+    needs: [detect-changes, build-backend, build-frontend]
+    if: |
+      always() && 
+      !cancelled() &&
+      github.ref == 'refs/heads/main' &&
+      (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
+      (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
+    runs-on: ubuntu-latest
+    
+    steps:
       - name: Deploy to Azure VM
-        if: github.ref == 'refs/heads/main'
         uses: appleboy/ssh-action@master
         with:
           host: ${{ env.AZURE_VM_HOST }}
@@ -75,64 +131,90 @@ jobs:
           script: |
             cd /home/azureuser/voilavoicebooking
 
-            # Pull latest code to get updated docker-compose.yml and nginx.conf
-            echo "Pulling latest code from GitHub..."
+            # Pull latest code
+            echo "📥 Pulling latest code..."
             git pull origin main
 
-            # Login to Docker Hub (in case credentials expired)
-            echo "Logging in to Docker Hub..."
+            # Login to Docker Hub
+            echo "🔐 Logging in to Docker Hub..."
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
+            # Clean old images (keep last 2 versions only)
+            echo "🧹 Cleaning old images..."
+            docker image prune -a -f --filter "until=168h"
+
             # Pull latest images
-            echo "Pulling latest images..."
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            docker pull ${{ env.REGISTRY }}/dashboard-frontend:latest
+            echo "📦 Pulling latest images..."
+            docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest || echo "Backend pull failed"
+            docker pull ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest || echo "Frontend pull failed"
             
-            # Create nginx logs directory if not exists
+            # Tag current images as backup (for rollback)
+            echo "💾 Creating backup tags..."
+            docker tag $(docker inspect --format='{{.Image}}' info-agent 2>/dev/null || echo "none") ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:backup 2>/dev/null || true
+            docker tag $(docker inspect --format='{{.Image}}' dashboard-frontend 2>/dev/null || echo "none") ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:backup 2>/dev/null || true
+            
+            # Create necessary directories
             mkdir -p logs/nginx
             
-            # Graceful shutdown of old containers
-            echo "Stopping old containers..."
-            docker-compose down --remove-orphans
+            # Deploy updates (zero-downtime with --no-deps)
+            echo "🚀 Deploying services..."
+            docker-compose up -d --no-deps
             
-            # Start new containers (3 agents + nginx load balancer)
-            echo "Starting new containers (Nginx + 3 Pipecat agents)..."
-            docker-compose up -d
+            # Wait for services to start
+            echo "⏳ Waiting for services..."
+            sleep 15
             
-            # Wait for containers to be healthy
-            echo "Waiting for containers to be healthy..."
-            sleep 10
+            # Health checks
+            echo "🏥 Health checks..."
             
-            # Cleanup old images
-            echo "Cleaning up old images..."
-            docker image prune -f
+            # Check backend
+            if curl -f http://localhost:8081/health >/dev/null 2>&1; then
+              echo "✅ Backend (info-agent) is healthy"
+            else
+              echo "❌ Backend health check failed"
+            fi
             
-            # Verify deployment
-            echo "Verifying deployment..."
-            docker-compose ps
+            # Check frontend
+            if curl -f http://localhost:8082 >/dev/null 2>&1; then
+              echo "✅ Frontend (dashboard) is healthy"
+            else
+              echo "❌ Frontend health check failed"
+            fi
             
-            # Check load balancer health
-            echo "Checking load balancer health..."
-            sleep 3
-            curl -f http://localhost:8000/health || echo "Health check failed!"
+            # Check booking agents
+            if curl -f http://localhost:8000/health >/dev/null 2>&1; then
+              echo "✅ Booking agents are healthy"
+            else
+              echo "❌ Booking agents health check failed"
+            fi
             
-            # Show container status
+            # Show deployment status
             echo ""
-            echo "Container Status:"
+            echo "📊 Container Status:"
             docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
             
-            # Show recent logs
             echo ""
-            echo "Recent logs:"
-            docker-compose logs --tail=20
+            echo "📝 Recent logs:"
+            docker-compose logs --tail=10
 
       - name: Deployment Summary
         if: always()
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backend Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
-          echo "- **Frontend Image**: ${{ env.REGISTRY }}/dashboard-frontend:latest" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Architecture**: Nginx LB + 3 Booking Agents + Info Agent + Dashboard" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.detect-changes.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Changed**: ${{ needs.detect-changes.outputs.backend }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend Changed**: ${{ needs.detect-changes.outputs.frontend }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Deployed to**: ${{ env.AZURE_VM_HOST }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Ports**: 8000 (Booking), 8081 (Info API), 3000 (Dashboard)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Endpoints:" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend API: http://${{ env.AZURE_VM_HOST }}:8081" >> $GITHUB_STEP_SUMMARY
+          echo "- Dashboard: http://${{ env.AZURE_VM_HOST }}:8082" >> $GITHUB_STEP_SUMMARY
+          echo "- Booking: http://${{ env.AZURE_VM_HOST }}:8000" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Rollback:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "ssh azureuser@${{ env.AZURE_VM_HOST }}" >> $GITHUB_STEP_SUMMARY
+          echo "cd ~/voilavoicebooking" >> $GITHUB_STEP_SUMMARY
+          echo "./rollback.sh all" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
