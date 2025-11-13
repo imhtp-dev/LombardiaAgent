@@ -140,7 +140,7 @@ services:
       - pipecat-network
 
 
-  # Info Agent - Medical Information Assistant
+  # Info Agent - Medical Information Assistant + Dashboard APIs
   info-agent:
     image: rudyimhtpdev/voicebooking_piemo1:latest
     container_name: info-agent
@@ -174,6 +174,36 @@ services:
       - pipecat-network
     command: ["sh", "-c", "cd /app && python -m uvicorn info_agent.main:app --host 0.0.0.0 --port 8081"]
 
+  # Dashboard Frontend - Next.js
+  dashboard-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: dashboard-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://info-agent:8081/api
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      - info-agent
+    networks:
+      - pipecat-network
 
 networks:
   pipecat-network:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,8 +38,9 @@ import {
   Shield,
   Calendar,
   Activity,
+  Loader2,
 } from "lucide-react";
-import { dummyUsers } from "@/lib/dummy-data";
+import { usersApi, type User as UserType } from "@/lib/api-client";
 
 export default function UtentiPage() {
   const [nome, setNome] = useState("");
@@ -50,25 +51,75 @@ export default function UtentiPage() {
   const [filterRole, setFilterRole] = useState("all");
   const [alert, setAlert] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
+  // Real data state
+  const [users, setUsers] = useState<UserType[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Load users on mount
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const loadUsers = async () => {
+    setIsLoading(true);
+    try {
+      const data = await usersApi.list();
+      setUsers(data);
+    } catch (err) {
+      console.error("Error loading users:", err);
+      showAlert("Errore nel caricamento degli utenti", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const showAlert = (message: string, type: "success" | "error" | "info") => {
     setAlert({ message, type });
     setTimeout(() => setAlert(null), 5000);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (!nome.trim() || !cognome.trim() || !email.trim() || !ruolo) {
       showAlert("Tutti i campi sono obbligatori", "error");
       return;
     }
-    showAlert("Utente creato con successo! Credenziali inviate via email.", "success");
-    setNome("");
-    setCognome("");
-    setEmail("");
-    setRuolo("");
+    
+    setIsSaving(true);
+    try {
+      const result = await usersApi.create({
+        nome: nome.trim(),
+        cognome: cognome.trim(),
+        email: email.trim(),
+        ruolo: ruolo,
+      });
+      
+      showAlert(
+        result.email_sent 
+          ? "Utente creato con successo! Credenziali inviate via email." 
+          : "Utente creato, ma email non inviata. Controlla configurazione SendGrid.",
+        result.email_sent ? "success" : "info"
+      );
+      
+      // Clear form
+      setNome("");
+      setCognome("");
+      setEmail("");
+      setRuolo("");
+      
+      // Reload users
+      await loadUsers();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Errore durante la creazione dell'utente";
+      showAlert(errorMessage, "error");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const filteredUsers = dummyUsers.filter((user) => {
+  const filteredUsers = users.filter((user) => {
     const matchesSearch =
       user.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.cognome.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -77,22 +128,53 @@ export default function UtentiPage() {
     return matchesSearch && matchesRole;
   });
 
-  const handleToggleStatus = (userId: number, currentStatus: boolean) => {
+  const handleToggleStatus = async (userId: number, currentStatus: boolean) => {
     const action = currentStatus ? "disattivare" : "attivare";
-    if (confirm(`Sei sicuro di voler ${action} questo utente?`)) {
+    if (!confirm(`Sei sicuro di voler ${action} questo utente?`)) {
+      return;
+    }
+    
+    try {
+      await usersApi.toggleStatus(userId);
       showAlert(`Utente ${action === "disattivare" ? "disattivato" : "attivato"} con successo!`, "success");
+      await loadUsers();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Errore durante il cambio stato";
+      showAlert(errorMessage, "error");
     }
   };
 
-  const handleResendCredentials = (userId: number) => {
-    if (confirm("Sei sicuro di voler rinviare le credenziali a questo utente?")) {
-      showAlert("Credenziali rinviate con successo!", "success");
+  const handleResendCredentials = async (userId: number) => {
+    if (!confirm("Sei sicuro di voler rinviare le credenziali a questo utente?")) {
+      return;
+    }
+    
+    try {
+      const result = await usersApi.resendCredentials(userId);
+      showAlert(
+        result.email_sent
+          ? "Credenziali rinviate con successo!"
+          : "Credenziali generate ma email non inviata",
+        result.email_sent ? "success" : "info"
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Errore durante l'invio";
+      showAlert(errorMessage, "error");
     }
   };
 
-  const handleDelete = (userId: number) => {
-    if (confirm("Sei sicuro di voler eliminare questo utente? Questa azione non può essere annullata.")) {
+  const handleDelete = async (userId: number) => {
+    if (!confirm("Sei sicuro di voler eliminare questo utente? Questa azione non può essere annullata.")) {
+      return;
+    }
+    
+    try {
+      await usersApi.delete(userId);
       showAlert("Utente eliminato con successo!", "success");
+      await loadUsers();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Errore durante l'eliminazione";
+      showAlert(errorMessage, "error");
     }
   };
 
@@ -147,6 +229,7 @@ export default function UtentiPage() {
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
                   className="border-gray-200 hover:border-blue-300 transition-colors"
+                  disabled={isSaving}
                 />
               </div>
               <div className="space-y-2">
@@ -160,6 +243,7 @@ export default function UtentiPage() {
                   value={cognome}
                   onChange={(e) => setCognome(e.target.value)}
                   className="border-gray-200 hover:border-blue-300 transition-colors"
+                  disabled={isSaving}
                 />
               </div>
               <div className="space-y-2">
@@ -174,6 +258,7 @@ export default function UtentiPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="border-gray-200 hover:border-blue-300 transition-colors"
+                  disabled={isSaving}
                 />
               </div>
               <div className="space-y-2">
@@ -181,7 +266,7 @@ export default function UtentiPage() {
                   <Shield className="h-4 w-4" />
                   Ruolo
                 </Label>
-                <Select value={ruolo} onValueChange={setRuolo}>
+                <Select value={ruolo} onValueChange={setRuolo} disabled={isSaving}>
                   <SelectTrigger id="ruolo" className="border-gray-200 hover:border-blue-300 transition-colors">
                     <SelectValue placeholder="Seleziona Ruolo" />
                   </SelectTrigger>
@@ -194,9 +279,18 @@ export default function UtentiPage() {
                 </Select>
               </div>
             </div>
-            <Button type="submit" className="gap-2 hover:scale-105 transition-transform">
-              <UserPlus className="h-4 w-4" />
-              Invia Accessi
+            <Button type="submit" className="gap-2 hover:scale-105 transition-transform" disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Creazione...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Invia Accessi
+                </>
+              )}
             </Button>
           </form>
         </CardContent>
@@ -214,8 +308,8 @@ export default function UtentiPage() {
                 {filteredUsers.length}
               </Badge>
             </CardTitle>
-            <Button variant="outline" size="sm" className="gap-2 hover:scale-105 transition-transform">
-              <RefreshCw className="h-4 w-4" />
+            <Button variant="outline" size="sm" onClick={loadUsers} className="gap-2 hover:scale-105 transition-transform" disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
               Aggiorna
             </Button>
           </div>
@@ -248,101 +342,107 @@ export default function UtentiPage() {
             </Select>
           </div>
 
-          {/* Table */}
-          <div className="rounded-lg border border-gray-100 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-gray-50/50 hover:bg-gray-50/50">
-                  <TableHead className="font-semibold">Nome</TableHead>
-                  <TableHead className="font-semibold">Email</TableHead>
-                  <TableHead className="font-semibold">Ruolo</TableHead>
-                  <TableHead className="font-semibold">Stato</TableHead>
-                  <TableHead className="font-semibold">Data Creazione</TableHead>
-                  <TableHead className="font-semibold">Azioni</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Nessun utente trovato
-                    </TableCell>
+          {/* Loading State */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-gray-100 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50/50 hover:bg-gray-50/50">
+                    <TableHead className="font-semibold">Nome</TableHead>
+                    <TableHead className="font-semibold">Email</TableHead>
+                    <TableHead className="font-semibold">Ruolo</TableHead>
+                    <TableHead className="font-semibold">Stato</TableHead>
+                    <TableHead className="font-semibold">Data Creazione</TableHead>
+                    <TableHead className="font-semibold">Azioni</TableHead>
                   </TableRow>
-                ) : (
-                  filteredUsers.map((user) => (
-                    <TableRow key={user.user_id} className="hover:bg-blue-50/50 transition-colors">
-                      <TableCell className="font-medium">
-                        {user.nome} {user.cognome}
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{user.email}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={user.ruolo === "master" ? "default" : "secondary"}
-                          className="gap-1"
-                        >
-                          <Shield className="h-3 w-3" />
-                          {user.ruolo}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          className={`gap-1 ${
-                            user.is_active
-                              ? "bg-green-100 text-green-800 hover:bg-green-200"
-                              : "bg-red-100 text-red-800 hover:bg-red-200"
-                          }`}
-                        >
-                          <Activity className="h-3 w-3" />
-                          {user.is_active ? "Attivo" : "Inattivo"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="h-3 w-3 text-muted-foreground" />
-                          {new Date(user.created_at).toLocaleDateString("it-IT")}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleResendCredentials(user.user_id)}
-                            title="Rinvia credenziali"
-                            className="hover:bg-blue-50 hover:text-blue-700 hover:scale-110 transition-all"
-                          >
-                            <Mail className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleToggleStatus(user.user_id, user.is_active)}
-                            title={user.is_active ? "Disattiva" : "Attiva"}
-                            className="hover:bg-yellow-50 hover:text-yellow-700 hover:scale-110 transition-all"
-                          >
-                            {user.is_active ? (
-                              <ToggleRight className="h-4 w-4" />
-                            ) : (
-                              <ToggleLeft className="h-4 w-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(user.user_id)}
-                            className="text-red-600 hover:bg-red-50 hover:text-red-700 hover:scale-110 transition-all"
-                            title="Elimina"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                </TableHeader>
+                <TableBody>
+                  {filteredUsers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        Nessun utente trovato
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  ) : (
+                    filteredUsers.map((user) => (
+                      <TableRow key={user.user_id} className="hover:bg-blue-50/50 transition-colors">
+                        <TableCell className="font-medium">
+                          {user.nome} {user.cognome}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm">{user.email}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={user.ruolo === "master" ? "default" : "secondary"}
+                            className="gap-1"
+                          >
+                            <Shield className="h-3 w-3" />
+                            {user.ruolo}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={`gap-1 ${
+                              user.is_active
+                                ? "bg-green-100 text-green-800 hover:bg-green-200"
+                                : "bg-red-100 text-red-800 hover:bg-red-200"
+                            }`}
+                          >
+                            <Activity className="h-3 w-3" />
+                            {user.is_active ? "Attivo" : "Inattivo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2 text-sm">
+                            <Calendar className="h-3 w-3 text-muted-foreground" />
+                            {new Date(user.created_at).toLocaleDateString("it-IT")}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleResendCredentials(user.user_id)}
+                              title="Rinvia credenziali"
+                              className="hover:bg-blue-50 hover:text-blue-700 hover:scale-110 transition-all"
+                            >
+                              <Mail className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleToggleStatus(user.user_id, user.is_active)}
+                              title={user.is_active ? "Disattiva" : "Attiva"}
+                              className="hover:bg-yellow-50 hover:text-yellow-700 hover:scale-110 transition-all"
+                            >
+                              {user.is_active ? (
+                                <ToggleRight className="h-4 w-4" />
+                              ) : (
+                                <ToggleLeft className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDelete(user.user_id)}
+                              className="text-red-600 hover:bg-red-50 hover:text-red-700 hover:scale-110 transition-all"
+                              title="Elimina"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

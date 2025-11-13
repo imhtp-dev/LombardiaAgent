@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle } from "lucide-react";
+import { authApi } from "@/lib/api-client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,10 +24,26 @@ export default function LoginPage() {
     setError("");
     setIsLoading(true);
 
-    // Simulate login - Accept ANY credentials for now (dummy data)
-    setTimeout(() => {
-      router.push("/dashboard");
-    }, 1000);
+    try {
+      // Call real API
+      const result = await authApi.login({
+        email,
+        password,
+        remember_me: rememberMe,
+      });
+
+      if (result.success) {
+        // Token is already stored in localStorage by authApi.login
+        router.push("/dashboard");
+      } else {
+        setError(result.message || "Errore durante il login");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Errore durante il login. Riprova.";
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

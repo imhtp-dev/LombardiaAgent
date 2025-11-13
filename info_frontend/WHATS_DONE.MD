@@ -444,11 +444,11 @@ Each card shows:
 - **Authentication:** JWT token-based (stored in localStorage/sessionStorage)
 
 ### Original Templates Location:
-- **Templates:** `DashboardVoilaVoice\DashboardVoilaVoice\templates`
-- **Static:** `DashboardVoilaVoice\DashboardVoilaVoice\static`
+- **Templates:** `D:\freelancing_projects\DashboardVoilaVoice\DashboardVoilaVoice\templates`
+- **Static:** `D:\freelancing_projects\DashboardVoilaVoice\DashboardVoilaVoice\static`
 
 ### Pipecat Agent Location:
-- **Agent:** `pipecat-booking-agent\info_agent`
+- **Agent:** `D:\freelancing_projects\pipecat-booking-agent\info_agent`
 - **Note:** This will replace VAPI integration in the future
 
 ---

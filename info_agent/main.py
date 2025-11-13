@@ -85,10 +85,9 @@ class RawPCMSerializer(FrameSerializer):
 
 app = FastAPI(
     title=info_settings.server_config["title"],
-    description="Pipecat-based medical information agent for Cerba Healthcare",
+    description="Pipecat-based medical information agent for Cerba Healthcare + Dashboard APIs",
     version=info_settings.server_config["version"]
 )
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -97,6 +96,61 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Import API routers
+from info_agent.api.database import db
+from info_agent.api import auth, users, qa, dashboard
+
+# Import Q&A AI services initialization
+from info_agent.api.qa import initialize_ai_services
+
+
+# Startup event - Initialize database and AI services
+@app.on_event("startup")
+async def startup():
+    """Initialize database pool and AI services on startup"""
+    logger.info("🚀 Starting Info Agent + Dashboard APIs...")
+    
+    try:
+        # Initialize database
+        await db.connect()
+        logger.info("✅ Database connection pool initialized")
+        
+        # Initialize Pinecone and OpenAI for Q&A management
+        initialize_ai_services()
+        logger.info("✅ AI services (Pinecone + OpenAI) initialized")
+        
+        logger.success("✅ All services initialized successfully!")
+        
+    except Exception as e:
+        logger.error(f"❌ Startup initialization failed: {e}")
+        raise
+
+
+# Shutdown event - Cleanup database
+@app.on_event("shutdown")
+async def shutdown():
+    """Close database pool on shutdown"""
+    logger.info("🛑 Shutting down Info Agent + Dashboard APIs...")
+    
+    try:
+        await db.close()
+        logger.info("✅ Database connection pool closed")
+    except Exception as e:
+        logger.error(f"❌ Shutdown cleanup error: {e}")
+
+
+# Include API routers
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(users.router, prefix="/api/users", tags=["Users"])
+app.include_router(qa.router, prefix="/api/qa", tags=["Q&A Management"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+
+logger.info("✅ API routers registered:")
+logger.info("   - /api/auth/* (Authentication)")
+logger.info("   - /api/users/* (User Management)")
+logger.info("   - /api/qa/* (Q&A Management)")
+logger.info("   - /api/dashboard/* (Dashboard Statistics)")
 
 
 active_sessions: Dict[str, Any] = {}
