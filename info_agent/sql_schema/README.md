@@ -55,7 +55,7 @@ In Supabase Dashboard:
 
 ### For FastAPI Backend (`app.py`)
 
-Update `D:\freelancing_projects\DashboardVoilaVoice\DashboardVoilaVoice\.env`:
+Update `.env`:
 
 ```bash
 # Supabase PostgreSQL Configuration
