@@ -123,9 +123,7 @@ voilavoicebookingvm_key*
 city_codes.json
 
 # Call data and transcripts (stored in Azure)
-*.json
-!package.json
-!requirements*.txt
+
 
 # Docker and deployment
 docker-compose.override.yml
