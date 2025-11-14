@@ -139,14 +139,54 @@ jobs:
             echo "🔐 Logging in to Docker Hub..."
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-            # Clean old images (keep last 2 versions only)
-            echo "🧹 Cleaning old images..."
-            docker image prune -a -f --filter "until=168h"
+            # Check disk space
+            echo "💾 Checking disk space..."
+            df -h /
+            AVAILABLE=$(df / | tail -1 | awk '{print $4}' | sed 's/G//')
+            echo "Available space: ${AVAILABLE}GB"
+            
+            # Clean up if space is low
+            if [ $(echo "$AVAILABLE < 10" | bc) -eq 1 ]; then
+              echo "⚠️ Low disk space detected! Cleaning up..."
+              
+              # Remove buildx volume (frees ~3GB)
+              docker stop buildx_buildkit_mybuilder0 2>/dev/null || true
+              docker rm buildx_buildkit_mybuilder0 2>/dev/null || true
+              docker volume rm buildx_buildkit_mybuilder0_state 2>/dev/null || true
+              
+              # Clean old images
+              docker image prune -a -f --filter "until=72h"
+              
+              # Check space again
+              df -h /
+            else
+              # Just clean very old images
+              echo "🧹 Cleaning old images..."
+              docker image prune -a -f --filter "until=168h"
+            fi
 
-            # Pull latest images
+            # Pull latest images with retry
             echo "📦 Pulling latest images..."
-            docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest || echo "Backend pull failed"
-            docker pull ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest || echo "Frontend pull failed"
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if docker pull ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest; then
+                echo "✅ Backend image pulled successfully"
+                break
+              else
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  echo "⚠️ Backend pull failed, retrying ($RETRY_COUNT/$MAX_RETRIES)..."
+                  sleep 5
+                else
+                  echo "❌ Backend pull failed after $MAX_RETRIES attempts"
+                  exit 1
+                fi
+              fi
+            done
+            
+            docker pull ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest || echo "⚠️ Frontend pull skipped (may not have changed)"
             
             # Tag current images as backup (for rollback)
             echo "💾 Creating backup tags..."
@@ -164,28 +204,50 @@ jobs:
             echo "⏳ Waiting for services..."
             sleep 15
             
-            # Health checks
+            # Health checks with rollback on failure
             echo "🏥 Health checks..."
+            HEALTH_CHECK_FAILED=0
             
-            # Check backend
+            # Check backend (critical)
             if curl -f http://localhost:8081/health >/dev/null 2>&1; then
               echo "✅ Backend (info-agent) is healthy"
             else
               echo "❌ Backend health check failed"
+              HEALTH_CHECK_FAILED=1
             fi
             
             # Check frontend
             if curl -f http://localhost:8082 >/dev/null 2>&1; then
               echo "✅ Frontend (dashboard) is healthy"
             else
-              echo "❌ Frontend health check failed"
+              echo "⚠️ Frontend health check failed (non-critical)"
             fi
             
-            # Check booking agents
+            # Check booking agents (critical)
             if curl -f http://localhost:8000/health >/dev/null 2>&1; then
               echo "✅ Booking agents are healthy"
             else
               echo "❌ Booking agents health check failed"
+              HEALTH_CHECK_FAILED=1
+            fi
+            
+            # Rollback if critical health checks failed
+            if [ $HEALTH_CHECK_FAILED -eq 1 ]; then
+              echo ""
+              echo "❌ Critical services failed health checks!"
+              echo "🔄 Rolling back to previous version..."
+              
+              # Stop current containers
+              docker-compose down
+              
+              # Restore backup images
+              docker tag ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:backup ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest 2>/dev/null || true
+              
+              # Restart with backup
+              docker-compose up -d
+              
+              echo "✅ Rollback completed"
+              exit 1
             fi
             
             # Show deployment status
