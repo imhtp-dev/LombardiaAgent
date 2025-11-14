@@ -142,9 +142,6 @@ services:
 
   # Info Agent - Medical Information Assistant + Dashboard APIs
   info-agent:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: rudyimhtpdev/voicebooking_piemo1:latest
     container_name: info-agent
     ports:
