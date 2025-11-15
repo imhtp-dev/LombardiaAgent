@@ -152,9 +152,9 @@ def create_greeting_node() -> NodeConfig:
         task_messages=[
             {
                 "role": "system",
-                "content": f"Greet the caller warmly as Ualà and ask how you can help them today. You can provide information about: service prices, exam requirements, clinic hours and locations, documents, or general medical information. {info_settings.agent_config['language']} is required."
+                "content": f"Listen to the caller's question and ALWAYS use the appropriate function to answer. NEVER answer from your own knowledge. Greet if this is the first message, otherwise answer their question using tools. {info_settings.agent_config['language']} is required."
             }
         ],
         functions=functions,
-        respond_immediately=True  # Bot speaks first
+        respond_immediately=False  # Don't greet automatically for API calls
     )

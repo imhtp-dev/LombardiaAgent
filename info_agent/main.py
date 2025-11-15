@@ -41,7 +41,7 @@ from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializer
 
 
 from info_agent.flows.manager import create_flow_manager, initialize_flow_manager
-
+from info_agent.services.call_data_extractor import get_call_extractor, cleanup_call_extractor
 
 from info_agent.config.settings import info_settings
 
@@ -99,7 +99,7 @@ app.add_middleware(
 
 # Import API routers
 from info_agent.api.database import db
-from info_agent.api import auth, users, qa, dashboard
+from info_agent.api import auth, users, qa, dashboard, chat
 
 # Import Q&A AI services initialization
 from info_agent.api.qa import initialize_ai_services
@@ -111,20 +111,23 @@ async def startup():
     """Initialize database pool and AI services on startup"""
     logger.info("🚀 Starting Info Agent + Dashboard APIs...")
     
+    # Try to initialize database (optional for voice agent)
     try:
-        # Initialize database
         await db.connect()
         logger.info("✅ Database connection pool initialized")
-        
-        # Initialize Pinecone and OpenAI for Q&A management
+    except Exception as e:
+        logger.warning(f"⚠️ Database connection failed (dashboard APIs will not work): {e}")
+        logger.info("✅ Voice agent will still function normally")
+    
+    # Try to initialize Pinecone and OpenAI for Q&A management (optional)
+    try:
         initialize_ai_services()
         logger.info("✅ AI services (Pinecone + OpenAI) initialized")
-        
-        logger.success("✅ All services initialized successfully!")
-        
     except Exception as e:
-        logger.error(f"❌ Startup initialization failed: {e}")
-        raise
+        logger.warning(f"⚠️ AI services initialization failed (Q&A management APIs will not work): {e}")
+        logger.info("✅ Voice agent will still function normally")
+    
+    logger.success("✅ Info Agent startup complete (voice agent ready)")
 
 
 # Shutdown event - Cleanup database
@@ -145,12 +148,14 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(qa.router, prefix="/api/qa", tags=["Q&A Management"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 
 logger.info("✅ API routers registered:")
 logger.info("   - /api/auth/* (Authentication)")
 logger.info("   - /api/users/* (User Management)")
 logger.info("   - /api/qa/* (Q&A Management)")
 logger.info("   - /api/dashboard/* (Dashboard Statistics)")
+logger.info("   - /api/chat/* (Chat Interface)")
 
 
 active_sessions: Dict[str, Any] = {}
@@ -361,6 +366,11 @@ async def websocket_endpoint(websocket: WebSocket):
         # Store session ID
         flow_manager.state["session_id"] = session_id
         
+        # Initialize call data extractor
+        call_extractor = get_call_extractor(session_id)
+        interaction_id = query_params.get("interaction_id")
+        call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+        
         # Event handlers
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport_obj, ws):
@@ -371,6 +381,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 "websocket": ws,
                 "connected_at": asyncio.get_event_loop().time(),
                 "agent": "info",
+                "flow_manager": flow_manager,
+                "call_extractor": call_extractor,
                 "services": {
                     "stt": "deepgram",
                     "llm": "openai-gpt4.1-mini",
@@ -389,6 +401,33 @@ async def websocket_endpoint(websocket: WebSocket):
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport_obj, ws):
             logger.info(f"🔌 Client disconnected: {session_id}")
+            
+            # End call timing
+            call_extractor.end_call()
+            
+            # Extract transcript from context aggregator
+            try:
+                messages = context_aggregator.get_messages()
+                for msg in messages:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role and content:
+                        call_extractor.add_transcript_entry(role, content)
+            except Exception as e:
+                logger.warning(f"⚠️ Could not extract transcript: {e}")
+            
+            # Save call data to database
+            try:
+                success = await call_extractor.save_to_database(flow_manager.state)
+                if success:
+                    logger.success("✅ Call data saved to Supabase")
+                else:
+                    logger.warning("⚠️ Call data extraction failed (check logs)")
+            except Exception as e:
+                logger.error(f"❌ Error saving call data: {e}")
+            
+            # Cleanup call extractor
+            cleanup_call_extractor(session_id)
             
             # Check if transfer was requested
             if flow_manager.state.get("transfer_requested"):

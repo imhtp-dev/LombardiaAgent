@@ -22,18 +22,26 @@ class Database:
             if not database_url:
                 raise ValueError("DATABASE_URL environment variable not set")
             
+            # Supabase requires SSL connections
+            import ssl
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
             self.pool = await asyncpg.create_pool(
                 dsn=database_url,
                 min_size=5,
                 max_size=20,
                 command_timeout=60,
+                ssl=ssl_context,
+                statement_cache_size=0  # Required for Supabase connection pooler
             )
             
             # Test connection
             async with self.pool.acquire() as conn:
                 await conn.fetchval("SELECT 1")
             
-            logger.info("✅ PostgreSQL connection pool created successfully")
+            logger.info("✅ PostgreSQL connection pool created successfully (SSL enabled)")
             
         except Exception as e:
             logger.error(f"❌ Failed to connect to PostgreSQL: {e}")

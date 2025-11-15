@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Send, MessageSquare, Bot, User, Loader2, Trash2, Sparkles, Database, Network } from "lucide-react";
-import { dummyChatMessages } from "@/lib/dummy-data";
 
 interface Message {
   id: string;
@@ -17,13 +16,37 @@ interface Message {
 }
 
 export default function VerificaConoscenzaPage() {
-  const [messages, setMessages] = useState<Message[]>(dummyChatMessages as Message[]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const [charCount, setCharCount] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const currentAssistantMessageRef = useRef<string>("");
   const maxChars = 1000;
+
+  // Check API connection on mount
+  useEffect(() => {
+    const checkConnection = async () => {
+      try {
+        const response = await fetch('http://localhost:8081/health');
+        if (response.ok) {
+          setIsConnected(true);
+          console.log("✅ Info Agent API connected");
+        }
+      } catch (error) {
+        console.error("❌ Info Agent API not reachable");
+        setIsConnected(false);
+      }
+    };
+    
+    checkConnection();
+    const interval = setInterval(checkConnection, 10000); // Check every 10s
+    
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -31,7 +54,7 @@ export default function VerificaConoscenzaPage() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMessage.trim() || isLoading || inputMessage.length > maxChars) return;
+    if (!inputMessage.trim() || isLoading || inputMessage.length > maxChars || !isConnected) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -41,22 +64,57 @@ export default function VerificaConoscenzaPage() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const messageToSend = inputMessage;
     setInputMessage("");
     setCharCount(0);
-    setIsLoading(true);
 
-    setTimeout(() => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch('http://localhost:8081/api/chat/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: messageToSend,
+          region: 'Piemonte'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('API request failed');
+      }
+
+      const data = await response.json();
+      
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "Questa è una risposta di esempio. In produzione, questa risposta verrà dal voice agent tramite API.",
-        timestamp: new Date(),
-        functionCalled: Math.random() > 0.5 ? "RAG" : "GRAPH",
+        content: data.response,
+        timestamp: new Date(data.timestamp),
+        functionCalled: data.function_called,
       };
+      
       setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "Mi dispiace, si è verificato un errore. Per favore riprova.",
+        timestamp: new Date(),
+        functionCalled: null,
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
       setIsLoading(false);
       inputRef.current?.focus();
-    }, 1000);
+    }
   };
 
   const handleClearChat = () => {
@@ -76,10 +134,19 @@ export default function VerificaConoscenzaPage() {
               Testa la conoscenza del voice agent in tempo reale
             </p>
           </div>
-          <Button variant="outline" onClick={handleClearChat} className="gap-2 hover:scale-105 transition-transform">
-            <Trash2 className="h-4 w-4" />
-            Cancella Chat
-          </Button>
+          <div className="flex items-center gap-2">
+            <Badge 
+              variant={isConnected ? "default" : "destructive"}
+              className="gap-1.5"
+            >
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+              {isConnected ? "Connesso" : "Disconnesso"}
+            </Badge>
+            <Button variant="outline" onClick={handleClearChat} className="gap-2 hover:scale-105 transition-transform">
+              <Trash2 className="h-4 w-4" />
+              Cancella Chat
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -176,7 +243,7 @@ export default function VerificaConoscenzaPage() {
                           : "bg-white text-gray-900 shadow-sm border border-gray-100"
                       }`}
                     >
-                      <p className="text-sm leading-relaxed break-words">{message.content}</p>
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{message.content}</p>
                     </div>
                     <div className="flex items-center gap-2 mt-1 px-2">
                       <p className="text-xs text-muted-foreground">
@@ -211,7 +278,7 @@ export default function VerificaConoscenzaPage() {
                   )}
                 </div>
               ))}
-              {isLoading && (
+              {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
                 <div className="flex gap-3 justify-start animate-in slide-in-from-bottom duration-300">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
                     <Bot className="h-5 w-5 text-white" />
@@ -237,8 +304,8 @@ export default function VerificaConoscenzaPage() {
                   setInputMessage(e.target.value);
                   setCharCount(e.target.value.length);
                 }}
-                placeholder="Scrivi un messaggio..."
-                disabled={isLoading}
+                placeholder={isConnected ? "Scrivi un messaggio..." : "Connessione in corso..."}
+                disabled={isLoading || !isConnected}
                 maxLength={maxChars}
                 className="flex-1 border-gray-200 hover:border-blue-300 focus:border-blue-500 transition-colors h-11"
                 onKeyDown={(e) => {
@@ -250,20 +317,12 @@ export default function VerificaConoscenzaPage() {
               />
               <Button 
                 type="submit" 
-                disabled={isLoading || !inputMessage.trim()}
+                disabled={isLoading || !inputMessage.trim() || !isConnected}
                 className="gap-2 px-6 h-11 hover:scale-105 transition-transform"
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Invio...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4" />
-                    Invia
-                  </>
-                )}
+                {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {!isLoading && <Send className="h-4 w-4" />}
+                <span>{isLoading ? "Invio..." : "Invia"}</span>
               </Button>
             </div>
             <div className="flex items-center justify-between px-1">
@@ -295,7 +354,7 @@ export default function VerificaConoscenzaPage() {
             <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
               <MessageSquare className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <span className="text-muted-foreground">
-                Fai domande per testare la conoscenza del voice agent
+                Fai domande per testare la conoscenza del voice agent con memoria conversazionale
               </span>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-purple-50 hover:bg-purple-100 transition-colors">
