@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Send, MessageSquare, Bot, User, Loader2, Trash2, Sparkles, Database, Network } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface Message {
   id: string;
@@ -34,16 +35,14 @@ export default function VerificaConoscenzaPage() {
         const response = await fetch('http://localhost:8081/health');
         if (response.ok) {
           setIsConnected(true);
-          console.log("✅ Info Agent API connected");
         }
       } catch (error) {
-        console.error("❌ Info Agent API not reachable");
         setIsConnected(false);
       }
     };
     
     checkConnection();
-    const interval = setInterval(checkConnection, 10000); // Check every 10s
+    const interval = setInterval(checkConnection, 10000);
     
     return () => clearInterval(interval);
   }, []);
@@ -124,25 +123,48 @@ export default function VerificaConoscenzaPage() {
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header with Stats */}
       <div className="flex-shrink-0 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Verifica Conoscenza</h1>
-            <p className="text-muted-foreground mt-1">
+          <div className="space-y-1">
+            <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+              Verifica Conoscenza
+            </h1>
+            <p className="text-base text-gray-600">
               Testa la conoscenza del voice agent in tempo reale
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge 
-              variant={isConnected ? "default" : "destructive"}
-              className="gap-1.5"
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className={cn(
+                "absolute inset-0 rounded-full blur-md opacity-20 animate-pulse",
+                isConnected ? "bg-green-500" : "bg-red-500"
+              )}></div>
+              <Badge 
+                variant="outline"
+                className={cn(
+                  "relative gap-2 px-4 py-1.5 backdrop-blur-sm",
+                  isConnected 
+                    ? "border-green-200 bg-green-50/50 text-green-700" 
+                    : "border-red-200 bg-red-50/50 text-red-700"
+                )}
+              >
+                <span className="relative flex h-2 w-2">
+                  {isConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
+                  <span className={cn(
+                    "relative inline-flex rounded-full h-2 w-2",
+                    isConnected ? "bg-green-500" : "bg-red-500"
+                  )}></span>
+                </span>
+                {isConnected ? "Connesso" : "Disconnesso"}
+              </Badge>
+            </div>
+            <Button 
+              variant="outline" 
+              onClick={handleClearChat} 
+              className="gap-2 border-2 hover:bg-gray-50 hover:border-gray-300 transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 font-medium h-10"
             >
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
-              {isConnected ? "Connesso" : "Disconnesso"}
-            </Badge>
-            <Button variant="outline" onClick={handleClearChat} className="gap-2 hover:scale-105 transition-transform">
               <Trash2 className="h-4 w-4" />
               Cancella Chat
             </Button>

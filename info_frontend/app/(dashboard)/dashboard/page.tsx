@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
 import { dashboardApi, type DashboardStats, type Region, type CallListResponse, type CallItem } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
   const [selectedRegion, setSelectedRegion] = useState("All Region");
@@ -223,40 +224,40 @@ export default function DashboardPage() {
     );
   };
 
-  if (isLoading && !stats) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="space-y-8 animate-in fade-in duration-500">
       {/* Page Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
+        <div className="space-y-1">
+          <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+            Dashboard
+          </h1>
+          <p className="text-base text-gray-600">
             Panoramica completa delle chiamate e statistiche
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="gap-1">
-            <Activity className="h-3 w-3" />
-            Live
-          </Badge>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <div className="absolute inset-0 bg-green-500 rounded-full blur-md opacity-20 animate-pulse"></div>
+            <Badge variant="outline" className="relative gap-2 px-4 py-1.5 border-green-200 bg-green-50/50 text-green-700 backdrop-blur-sm">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              Live
+            </Badge>
+          </div>
         </div>
       </div>
 
       {/* Filters */}
-      <Card className="border-gray-100 shadow-sm hover:shadow-md transition-all">
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Regione</Label>
+      <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300 backdrop-blur-sm bg-white/80">
+        <CardContent className="pt-6 pb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+            <div className="space-y-2.5">
+              <Label className="text-sm font-semibold text-gray-700">Regione</Label>
               <Select value={selectedRegion} onValueChange={setSelectedRegion}>
-                <SelectTrigger className="border-gray-200 hover:border-blue-300 transition-colors">
+                <SelectTrigger className="h-11 border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200 bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -268,32 +269,39 @@ export default function DashboardPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Data Inizio</Label>
+            <div className="space-y-2.5">
+              <Label className="text-sm font-semibold text-gray-700">Data Inizio</Label>
               <Input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="border-gray-200 hover:border-blue-300 transition-colors"
+                className="h-11 border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200"
               />
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Data Fine</Label>
+            <div className="space-y-2.5">
+              <Label className="text-sm font-semibold text-gray-700">Data Fine</Label>
               <Input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="border-gray-200 hover:border-blue-300 transition-colors"
+                className="h-11 border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200"
               />
             </div>
-            <div className="space-y-2 sm:col-span-2 lg:col-span-1 xl:col-span-2">
+            <div className="space-y-2.5 sm:col-span-2 lg:col-span-1 xl:col-span-2">
               <Label className="invisible text-sm">Actions</Label>
-              <div className="flex gap-2">
-                <Button onClick={handleFilter} variant="default" className="flex-1 gap-2 hover:scale-105 transition-transform">
-                  <Search className="h-4 w-4" />
+              <div className="flex gap-3">
+                <Button 
+                  onClick={handleFilter} 
+                  className="flex-1 h-11 gap-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 font-medium"
+                >
+                  <Search className="h-4 w-4 text-white" />
                   <span className="hidden sm:inline">Filtra</span>
                 </Button>
-                <Button variant="outline" onClick={handleClearFilters} className="flex-1 gap-2 hover:scale-105 transition-transform">
+                <Button 
+                  variant="outline" 
+                  onClick={handleClearFilters} 
+                  className="flex-1 h-11 gap-2 border-2 hover:bg-gray-50 hover:border-gray-300 transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 font-medium"
+                >
                   <X className="h-4 w-4" />
                   <span className="hidden sm:inline">Reset</span>
                 </Button>
@@ -312,61 +320,98 @@ export default function DashboardPage() {
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Totale Minuti"
-          value={isLoading ? "..." : `${(stats?.total_minutes || 0).toLocaleString()} min`}
-          icon={Clock}
-          iconColor="text-blue-600"
-        />
-        <StatCard
-          title="Corrispettivo Euro"
-          value={isLoading ? "..." : `€ ${(stats?.total_revenue || 0).toFixed(2)}`}
-          icon={Euro}
-          iconColor="text-green-600"
-        />
-        <StatCard
-          title="Nr. Chiamate"
-          value={isLoading ? "..." : (stats?.total_calls || 0).toLocaleString()}
-          icon={Phone}
-          iconColor="text-purple-600"
-        />
-        <StatCard
-          title="Durata Media"
-          value={isLoading ? "..." : `${(stats?.avg_duration_minutes || 0).toFixed(1)} min`}
-          icon={TrendingUp}
-          iconColor="text-yellow-600"
-        />
+        {isLoading && !stats ? (
+          <>
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i} className="border border-gray-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-3 flex-1">
+                      <Skeleton className="h-3 w-24" />
+                      <Skeleton className="h-8 w-32" />
+                    </div>
+                    <Skeleton className="h-16 w-16 rounded-2xl" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="Totale Minuti"
+              value={`${(stats?.total_minutes || 0).toLocaleString()} min`}
+              icon={Clock}
+              iconColor="text-blue-600"
+            />
+            <StatCard
+              title="Corrispettivo Euro"
+              value={`€ ${(stats?.total_revenue || 0).toFixed(2)}`}
+              icon={Euro}
+              iconColor="text-green-600"
+            />
+            <StatCard
+              title="Nr. Chiamate"
+              value={(stats?.total_calls || 0).toLocaleString()}
+              icon={Phone}
+              iconColor="text-purple-600"
+            />
+            <StatCard
+              title="Durata Media"
+              value={`${(stats?.avg_duration_minutes || 0).toFixed(1)} min`}
+              icon={TrendingUp}
+              iconColor="text-yellow-600"
+            />
+          </>
+        )}
       </div>
 
       {/* Charts Row */}
       {sentimentStats.length > 0 || actionStats.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {sentimentStats.length > 0 && (
-            <Card className="border-gray-100 shadow-sm hover:shadow-md transition-all">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Heart className="h-5 w-5 text-blue-600" />
+            <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-pink-50 to-pink-100">
+                    <Heart className="h-5 w-5 text-pink-600" />
+                  </div>
                   Distribuzione Sentiment
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
+              <CardContent className="pb-6">
+                <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
                       data={sentimentStats}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      label={(entry) => entry.sentiment}
-                      outerRadius={70}
+                      label={false}
+                      outerRadius={85}
                       fill="#8884d8"
                       dataKey="count"
+                      strokeWidth={2}
+                      stroke="#fff"
                     >
                       {sentimentStats.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'white', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                      }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      height={36}
+                      formatter={(value) => <span className="text-sm font-medium text-gray-700 capitalize">{value}</span>}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -374,31 +419,48 @@ export default function DashboardPage() {
           )}
 
           {actionStats.length > 0 && (
-            <Card className="border-gray-100 shadow-sm hover:shadow-md transition-all">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Target className="h-5 w-5 text-blue-600" />
+            <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100">
+                    <Target className="h-5 w-5 text-blue-600" />
+                  </div>
                   Distribuzione Azioni
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
+              <CardContent className="pb-6">
+                <ResponsiveContainer width="100%" height={240}>
                   <PieChart>
                     <Pie
                       data={actionStats}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      label={(entry) => entry.action}
-                      outerRadius={70}
+                      label={false}
+                      outerRadius={85}
                       fill="#8884d8"
                       dataKey="count"
+                      strokeWidth={2}
+                      stroke="#fff"
                     >
                       {actionStats.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'white', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                      }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      height={36}
+                      formatter={(value) => <span className="text-sm font-medium text-gray-700 capitalize">{value}</span>}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -422,40 +484,54 @@ export default function DashboardPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-            </div>
-          ) : (
-            <>
-              <div className="rounded-lg border border-gray-100 overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gray-50/50 hover:bg-gray-50/50">
-                      <TableHead className="font-semibold">ID</TableHead>
-                      <TableHead className="font-semibold">Data/Ora</TableHead>
-                      <TableHead className="font-semibold">Telefono</TableHead>
-                      <TableHead className="font-semibold">Durata</TableHead>
-                      <TableHead className="font-semibold">Azione</TableHead>
-                      <TableHead className="font-semibold">Sentiment</TableHead>
-                      <TableHead className="font-semibold">Esito</TableHead>
-                      <TableHead className="font-semibold">Motivazione</TableHead>
-                      <TableHead className="font-semibold">Azioni</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedCalls.length > 0 ? (
-                      paginatedCalls.map((call) => (
-                        <TableRow key={call.id} className="hover:bg-blue-50/50 transition-colors">
-                          <TableCell className="font-medium">{call.id}</TableCell>
-                          <TableCell className="text-sm">
+          <div className="rounded-lg border border-gray-100 overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50/50 hover:bg-gray-50/50">
+                  <TableHead className="font-semibold">ID</TableHead>
+                  <TableHead className="font-semibold">Data/Ora</TableHead>
+                  <TableHead className="font-semibold">Telefono</TableHead>
+                  <TableHead className="font-semibold">Durata</TableHead>
+                  <TableHead className="font-semibold">Azione</TableHead>
+                  <TableHead className="font-semibold">Sentiment</TableHead>
+                  <TableHead className="font-semibold">Esito</TableHead>
+                  <TableHead className="font-semibold">Motivazione</TableHead>
+                  <TableHead className="font-semibold">Azioni</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <>
+                    {[...Array(5)].map((_, i) => (
+                      <TableRow key={i} className="border-b">
+                        <TableCell><Skeleton className="h-4 w-8" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                        <TableCell><Skeleton className="h-6 w-16 rounded-full" /></TableCell>
+                        <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
+                        <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
+                        <TableCell><Skeleton className="h-6 w-24 rounded-full" /></TableCell>
+                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                        <TableCell><Skeleton className="h-8 w-20 rounded-lg" /></TableCell>
+                      </TableRow>
+                    ))}
+                  </>
+                ) : paginatedCalls.length > 0 ? (
+                      paginatedCalls.map((call, index) => (
+                        <TableRow 
+                          key={call.id} 
+                          className="group hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-transparent border-b transition-all duration-200"
+                          style={{ animationDelay: `${index * 50}ms` }}
+                        >
+                          <TableCell className="font-semibold text-gray-900">{call.id}</TableCell>
+                          <TableCell className="text-sm text-gray-600">
                             {call.started_at ? new Date(call.started_at).toLocaleString("it-IT") : "N/A"}
                           </TableCell>
-                          <TableCell className="font-mono text-sm">
+                          <TableCell className="font-mono text-sm text-gray-700">
                             {call.phone_number || "N/A"}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="gap-1">
+                            <Badge variant="outline" className="gap-1 font-medium">
                               <Clock className="h-3 w-3" />
                               {call.duration_seconds}s
                             </Badge>
@@ -463,66 +539,70 @@ export default function DashboardPage() {
                           <TableCell>{getActionBadge(call.action)}</TableCell>
                           <TableCell>{getSentimentBadge(call.sentiment)}</TableCell>
                           <TableCell>{getEsitoBadge(call.esito_chiamata || "N/A")}</TableCell>
-                          <TableCell className="text-sm">{call.motivazione || "N/A"}</TableCell>
+                          <TableCell className="text-sm text-gray-600">{call.motivazione || "N/A"}</TableCell>
                           <TableCell>
                             <Button
                               size="sm"
                               variant="ghost"
                               onClick={() => handleViewCall(call)}
-                              className="gap-1 hover:bg-blue-50 hover:text-blue-700 transition-all"
+                              className="gap-1.5 hover:bg-blue-600 hover:text-white group-hover:translate-x-0.5 transform transition-all duration-200 font-medium h-8 px-3"
                             >
-                              <FileText className="h-4 w-4" />
-                              Dettagli
+                              <FileText className="h-3.5 w-3.5" />
+                              <span className="text-xs">Dettagli</span>
                             </Button>
                           </TableCell>
                         </TableRow>
                       ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                          Nessuna chiamata trovata per i filtri selezionati
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      Nessuna chiamata trovata per i filtri selezionati
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
 
-              {/* Pagination */}
-              {totalCalls > 0 && (
-                <div className="flex flex-col sm:flex-row items-center justify-between mt-4 gap-4">
-                  <div className="text-sm text-muted-foreground">
-                    Mostrando {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, totalCalls)} di{" "}
-                    {totalCalls} chiamate
+          {/* Pagination */}
+          {!isLoading && totalCalls > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between mt-6 pt-4 border-t gap-4">
+                  <div className="text-sm font-medium text-gray-600">
+                    Mostrando <span className="text-gray-900 font-semibold">{(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, totalCalls)}</span> di{" "}
+                    <span className="text-gray-900 font-semibold">{totalCalls}</span> chiamate
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                       disabled={currentPage === 1}
-                      className="gap-1 hover:scale-105 transition-transform"
+                      className="h-9 gap-2 border-2 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
                     >
                       <ChevronLeft className="h-4 w-4" />
-                      Precedente
+                      <span className="hidden sm:inline">Precedente</span>
                     </Button>
-                    <div className="text-sm font-medium px-3">
-                      Pagina {currentPage} di {totalPages}
+                    <div className="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-blue-50 to-blue-100/50 rounded-lg border border-blue-200">
+                      <span className="text-sm font-semibold text-blue-900">
+                        {currentPage}
+                      </span>
+                      <span className="text-sm text-blue-600">/</span>
+                      <span className="text-sm font-medium text-blue-700">
+                        {totalPages}
+                      </span>
                     </div>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                       disabled={currentPage === totalPages}
-                      className="gap-1 hover:scale-105 transition-transform"
+                      className="h-9 gap-2 border-2 hover:bg-gray-50 hover:border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
                     >
-                      Successiva
+                      <span className="hidden sm:inline">Successiva</span>
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
-              )}
-            </>
           )}
         </CardContent>
       </Card>

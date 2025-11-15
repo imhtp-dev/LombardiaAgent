@@ -179,11 +179,13 @@ export default function UtentiPage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="space-y-8 animate-in fade-in duration-500">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Gestione Utenti</h1>
-        <p className="text-muted-foreground mt-1">
+      <div className="space-y-1">
+        <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+          Gestione Utenti
+        </h1>
+        <p className="text-base text-gray-600">
           Crea e gestisci gli utenti del sistema
         </p>
       </div>
@@ -208,18 +210,20 @@ export default function UtentiPage() {
       )}
 
       {/* Create User Form */}
-      <Card className="border-gray-100 shadow-sm hover:shadow-md transition-all">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-blue-600" />
+      <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100">
+              <UserPlus className="h-5 w-5 text-blue-600" />
+            </div>
             Nuovo Utente
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="nome" className="flex items-center gap-2">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid md:grid-cols-2 gap-5">
+              <div className="space-y-2.5">
+                <Label htmlFor="nome" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <User className="h-4 w-4" />
                   Nome
                 </Label>
@@ -228,12 +232,12 @@ export default function UtentiPage() {
                   placeholder="Nome"
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
-                  className="border-gray-200 hover:border-blue-300 transition-colors"
+                  className="h-11 border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200"
                   disabled={isSaving}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="cognome" className="flex items-center gap-2">
+              <div className="space-y-2.5">
+                <Label htmlFor="cognome" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <User className="h-4 w-4" />
                   Cognome
                 </Label>
@@ -242,12 +246,12 @@ export default function UtentiPage() {
                   placeholder="Cognome"
                   value={cognome}
                   onChange={(e) => setCognome(e.target.value)}
-                  className="border-gray-200 hover:border-blue-300 transition-colors"
+                  className="h-11 border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200"
                   disabled={isSaving}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="email" className="flex items-center gap-2">
+              <div className="space-y-2.5">
+                <Label htmlFor="email" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <AtSign className="h-4 w-4" />
                   Email
                 </Label>
@@ -257,17 +261,17 @@ export default function UtentiPage() {
                   placeholder="nome@esempio.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="border-gray-200 hover:border-blue-300 transition-colors"
+                  className="h-11 border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200"
                   disabled={isSaving}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ruolo" className="flex items-center gap-2">
+              <div className="space-y-2.5">
+                <Label htmlFor="ruolo" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <Shield className="h-4 w-4" />
                   Ruolo
                 </Label>
                 <Select value={ruolo} onValueChange={setRuolo} disabled={isSaving}>
-                  <SelectTrigger id="ruolo" className="border-gray-200 hover:border-blue-300 transition-colors">
+                  <SelectTrigger id="ruolo" className="h-11 border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200 bg-white">
                     <SelectValue placeholder="Seleziona Ruolo" />
                   </SelectTrigger>
                   <SelectContent>
@@ -279,15 +283,19 @@ export default function UtentiPage() {
                 </Select>
               </div>
             </div>
-            <Button type="submit" className="gap-2 hover:scale-105 transition-transform" disabled={isSaving}>
+            <Button 
+              type="submit" 
+              className="gap-2 h-11 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 font-medium" 
+              disabled={isSaving}
+            >
               {isSaving ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin text-white" />
                   Creazione...
                 </>
               ) : (
                 <>
-                  <UserPlus className="h-4 w-4" />
+                  <UserPlus className="h-4 w-4 text-white" />
                   Invia Accessi
                 </>
               )}
