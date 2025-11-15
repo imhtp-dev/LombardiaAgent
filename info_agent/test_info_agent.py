@@ -19,8 +19,10 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from loguru import logger
 
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for imports
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
 # Core Pipecat imports
 from pipecat.frames.frames import (
@@ -253,7 +255,8 @@ class DailyInfoAgentTester:
         
         logger.success("✅ Pipeline and task created")
         
-        return stt
+        # Return all components needed for flow manager
+        return llm, context_aggregator
     
     async def setup_event_handlers(self):
         """Setup Daily transport event handlers"""
@@ -307,10 +310,10 @@ class DailyInfoAgentTester:
             self.token = token
             
             # Setup transport and pipeline
-            stt = await self.setup_transport_and_pipeline(room_url, token)
+            llm, context_aggregator = await self.setup_transport_and_pipeline(room_url, token)
             
             # Create flow manager
-            self.flow_manager = create_flow_manager(self.task, stt.llm, stt.context_aggregator, self.transport)
+            self.flow_manager = create_flow_manager(self.task, llm, context_aggregator, self.transport)
             self.flow_manager.state["session_id"] = self.session_id
             
             # Setup event handlers
