@@ -960,6 +960,19 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
                 }
                 logger.info(f"💾 CACHED: Stored {len(slots_response)} slots in state for 'show more' requests")
 
+            # Check if this is automatic search for 2nd+ service
+            is_automatic_search = False
+            first_appointment_date = None
+
+            if booking_scenario == "separate" and flow_manager.state.get("current_group_index", 0) > 0:
+                auto_start_time = flow_manager.state.get("auto_start_time")
+                if auto_start_time:
+                    is_automatic_search = True
+                    booked_slots = flow_manager.state.get("booked_slots", [])
+                    if booked_slots:
+                        first_appointment_date = booked_slots[0]["start_time"][:10]
+                        logger.info(f"🤖 SLOT SELECTION: Automatic search for 2nd+ service, first appointment: {first_appointment_date}")
+
             return {
                 "success": True,
                 "slots_count": len(slots_response),
@@ -972,7 +985,9 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
                 is_cerba_member=flow_manager.state.get("is_cerba_member", False),
                 user_preferred_date=user_preferred_date,
                 time_preference=time_preference,
-                first_available_mode=first_available_mode
+                first_available_mode=first_available_mode,
+                is_automatic_search=is_automatic_search,
+                first_appointment_date=first_appointment_date
             )
         else:
             error_message = f"No available slots found for {current_service_name} on {preferred_date}"
@@ -983,6 +998,8 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
 
             # Check if this is a multi-service booking (2nd+ appointment)
             first_appointment_date = None
+            is_automatic_search = False  # Flag to indicate if this is automatic search for 2nd+ service
+
             if booking_scenario == "separate" and flow_manager.state.get("current_group_index", 0) > 0:
                 # This is 2nd+ service - get first appointment date constraint
                 booked_slots = flow_manager.state.get("booked_slots", [])
@@ -990,11 +1007,17 @@ async def perform_slot_search_and_transition(args: FlowArgs, flow_manager: FlowM
                     first_appointment_date = booked_slots[0]["start_time"][:10]  # Extract YYYY-MM-DD
                     logger.info(f"🚫 DATE CONSTRAINT: 2nd appointment must be on/after {first_appointment_date}")
 
+                # Check if this was an automatic search (user didn't choose the date)
+                auto_start_time = flow_manager.state.get("auto_start_time")
+                if auto_start_time:
+                    is_automatic_search = True
+                    logger.info(f"🤖 AUTOMATIC SEARCH: This is 2nd+ service with auto date/time")
+
             from flows.nodes.booking import create_no_slots_node
             return {
                 "success": False,
                 "message": error_message
-            }, create_no_slots_node(preferred_date, time_preference, first_appointment_date)
+            }, create_no_slots_node(preferred_date, time_preference, first_appointment_date, is_automatic_search)
             
     except Exception as e:
         logger.error(f"Slot search error: {e}")

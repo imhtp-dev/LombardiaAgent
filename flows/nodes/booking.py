@@ -472,8 +472,13 @@ def create_slot_search_node() -> NodeConfig:
     )
 
 
-def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cerba_member: bool = False, user_preferred_date: str = None, time_preference: str = "any time", first_available_mode: bool = False) -> NodeConfig:
-    """Create slot selection node with progressive filtering and minimal LLM data"""
+def create_slot_selection_node(slots: List[Dict], service: HealthService, is_cerba_member: bool = False, user_preferred_date: str = None, time_preference: str = "any time", first_available_mode: bool = False, is_automatic_search: bool = False, first_appointment_date: str = None) -> NodeConfig:
+    """Create slot selection node with progressive filtering and minimal LLM data
+
+    Args:
+        is_automatic_search: True if this is automatic search for 2nd+ service
+        first_appointment_date: Date of first appointment (for 2nd+ services context)
+    """
 
     from loguru import logger
 
@@ -780,8 +785,15 @@ Ask the user which time works best for them."""
 
         dates_text = "\n- ".join(available_dates)
         if user_preferred_date:
-            task_content = f"Sorry, no appointments available for {service.name} on your preferred date. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Once you choose a date, I'll show you the available times for that date."
-            logger.info(f"❌ DATE UNAVAILABLE: User's preferred date {user_preferred_date} not in available dates")
+            # Different message for automatic search (2nd+ service) vs user-chosen date (1st service)
+            if is_automatic_search and first_appointment_date:
+                # For 2nd+ services: Mention first appointment context, don't apologize
+                task_content = f"Dal momento che il tuo primo appuntamento è il {first_appointment_date}, abbiamo disponibilità per {service.name} in queste date:\n\n- {dates_text}\n\nQuale data preferisci? Una volta scelta la data, ti mostrerò gli orari disponibili."
+                logger.info(f"🤖 AUTOMATIC DATE SELECTION: First appointment {first_appointment_date}, showing alternatives for 2nd service")
+            else:
+                # For 1st service: Keep original apologetic message
+                task_content = f"Sorry, no appointments available for {service.name} on your preferred date. We have appointments on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Once you choose a date, I'll show you the available times for that date."
+                logger.info(f"❌ DATE UNAVAILABLE: User's preferred date {user_preferred_date} not in available dates")
         else:
             task_content = f"We have appointments available on these dates:\n\n- {dates_text}\n\nWhich date would you prefer? Then I'll show you the available times."
             logger.info(f"ℹ️ DATE SELECTION: Showing {len(slots_by_date)} available dates")
@@ -1003,8 +1015,15 @@ def create_slot_refresh_node(service_name: str) -> NodeConfig:
     )
 
 
-def create_no_slots_node(date: str, time_preference: str = "any time", first_appointment_date: str = None) -> NodeConfig:
-    """Create node when no slots are available - with human-like alternative suggestions"""
+def create_no_slots_node(date: str, time_preference: str = "any time", first_appointment_date: str = None, is_automatic_search: bool = False) -> NodeConfig:
+    """Create node when no slots are available - with human-like alternative suggestions
+
+    Args:
+        date: The date that was searched
+        time_preference: Time preference used in search
+        first_appointment_date: Date of first appointment (for 2nd+ services)
+        is_automatic_search: True if this is automatic search for 2nd+ service (user didn't choose the date)
+    """
 
     # Build constraint message for multi-service bookings
     date_constraint_msg = ""
@@ -1014,10 +1033,17 @@ def create_no_slots_node(date: str, time_preference: str = "any time", first_app
         date_constraint_msg = f" IMPORTANT: Since this is your second appointment, it must be scheduled on or after your first appointment date ({first_appointment_date}). Please do not suggest any dates before {first_appointment_date}."
         system_constraint_msg = f"CRITICAL CONSTRAINT: This is a multi-service booking. The first appointment is on {first_appointment_date}. You MUST NOT suggest any dates before {first_appointment_date}. Only suggest dates on {first_appointment_date} or later dates. "
 
-    if time_preference == "any time":
-        no_slots_message = f"I'm sorry, there are no available slots for {date}.{date_constraint_msg} I'd like to suggest some alternatives: would you like to try a different date? I can check if there are available slots on nearby dates."
+    # Different message tone for automatic search (2nd+ services) vs user-chosen date (1st service)
+    if is_automatic_search and first_appointment_date:
+        # For 2nd+ services: Don't apologize about the date since user didn't choose it
+        # Mention the first appointment context and present alternatives naturally
+        no_slots_message = f"Dal momento che il tuo primo appuntamento è il {first_appointment_date}, ho cercato disponibilità per il secondo servizio. Vorresti che controllassi altre date disponibili? Posso verificare gli orari disponibili nei giorni successivi."
     else:
-        no_slots_message = f"I'm sorry, there are no available slots for {date} for {time_preference}.{date_constraint_msg} I'd like to suggest some alternatives: would you like to try a different date or time? For example, we might have available slots for {date} at a different time or on another date."
+        # For 1st service or user-chosen dates: Keep original apologetic tone
+        if time_preference == "any time":
+            no_slots_message = f"I'm sorry, there are no available slots for {date}.{date_constraint_msg} I'd like to suggest some alternatives: would you like to try a different date? I can check if there are available slots on nearby dates."
+        else:
+            no_slots_message = f"I'm sorry, there are no available slots for {date} for {time_preference}.{date_constraint_msg} I'd like to suggest some alternatives: would you like to try a different date or time? For example, we might have available slots for {date} at a different time or on another date."
 
     return NodeConfig(
         name="no_slots_available",
