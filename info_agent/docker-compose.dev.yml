@@ -26,3 +26,33 @@ services:
       - ../info_agent:/app/info_agent
       - ../config:/app/config
       - ../services:/app/services
+    networks:
+      - info-dev-network
+
+  streamlit-voice-tester:
+    build:
+      context: ..
+      dockerfile: info_agent/Dockerfile.streamlit
+    container_name: streamlit-voice-tester
+    ports:
+      - "8501:8501"
+    env_file:
+      - ../.env
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    restart: unless-stopped
+    depends_on:
+      - info-agent-dev
+    networks:
+      - info-dev-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  info-dev-network:
+    driver: bridge
