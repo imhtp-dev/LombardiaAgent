@@ -37,6 +37,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { qaApi, dashboardApi, type QAItem, type Region } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 
 export default function ConoscenzaPage() {
   const [selectedRegion, setSelectedRegion] = useState("");
@@ -192,10 +193,12 @@ export default function ConoscenzaPage() {
 
   if (!selectedRegion) {
     return (
-      <div className="space-y-6 animate-in fade-in duration-700">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Conoscenza AI</h1>
-          <p className="text-muted-foreground mt-1">
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="space-y-1">
+          <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+            Conoscenza AI
+          </h1>
+          <p className="text-base text-gray-600">
             Gestisci domande e risposte per il voice agent
           </p>
         </div>
@@ -239,20 +242,22 @@ export default function ConoscenzaPage() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="space-y-8 animate-in fade-in duration-500">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Conoscenza AI</h1>
-          <p className="text-muted-foreground mt-1 flex items-center gap-2">
+        <div className="space-y-1">
+          <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+            Conoscenza AI
+          </h1>
+          <p className="text-base text-gray-600 flex items-center gap-2">
             <MapPin className="h-4 w-4" />
-            {selectedRegion} • {filteredQA.length} domande
+            {selectedRegion} • <span className="font-semibold">{filteredQA.length}</span> domande
           </p>
         </div>
         <Button
           variant="outline"
           onClick={() => setSelectedRegion("")}
-          className="gap-2 hover:scale-105 transition-transform"
+          className="gap-2 border-2 hover:bg-gray-50 hover:border-gray-300 transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 h-10 font-medium"
         >
           <RotateCcw className="h-4 w-4" />
           Cambia Regione
@@ -279,18 +284,23 @@ export default function ConoscenzaPage() {
       )}
 
       {/* Add/Edit Form */}
-      <Card className="border-gray-100 shadow-sm hover:shadow-md transition-all">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            {editingId ? <Edit2 className="h-5 w-5 text-blue-600" /> : <Plus className="h-5 w-5 text-blue-600" />}
+      <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+            <div className={cn(
+              "p-2 rounded-lg bg-gradient-to-br transition-all duration-200",
+              editingId ? "from-orange-50 to-orange-100" : "from-blue-50 to-blue-100"
+            )}>
+              {editingId ? <Edit2 className="h-5 w-5 text-orange-600" /> : <Plus className="h-5 w-5 text-blue-600" />}
+            </div>
             {editingId ? "Modifica Domanda e Risposta" : "Aggiungi Nuova Domanda e Risposta"}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="question" className="flex items-center gap-2">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid md:grid-cols-2 gap-5">
+              <div className="space-y-2.5">
+                <Label htmlFor="question" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <FileText className="h-4 w-4" />
                   Domanda
                 </Label>
@@ -300,12 +310,12 @@ export default function ConoscenzaPage() {
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   rows={5}
-                  className="resize-none border-gray-200 hover:border-blue-300 transition-colors"
+                  className="resize-none border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200"
                   disabled={isSaving}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="answer" className="flex items-center gap-2">
+              <div className="space-y-2.5">
+                <Label htmlFor="answer" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <CheckCircle className="h-4 w-4" />
                   Risposta
                 </Label>
@@ -315,26 +325,36 @@ export default function ConoscenzaPage() {
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
                   rows={5}
-                  className="resize-none border-gray-200 hover:border-blue-300 transition-colors"
+                  className="resize-none border-gray-200 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200"
                   disabled={isSaving}
                 />
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button type="submit" className="gap-2 hover:scale-105 transition-transform" disabled={isSaving}>
+            <div className="flex gap-3">
+              <Button 
+                type="submit" 
+                className="gap-2 h-11 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 font-medium" 
+                disabled={isSaving}
+              >
                 {isSaving ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
                     Salvataggio...
                   </>
                 ) : (
                   <>
-                    <Save className="h-4 w-4" />
+                    <Save className="h-4 w-4 text-white" />
                     {editingId ? "Aggiorna" : "Salva"}
                   </>
                 )}
               </Button>
-              <Button type="button" variant="outline" onClick={handleReset} className="gap-2 hover:scale-105 transition-transform" disabled={isSaving}>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={handleReset} 
+                className="gap-2 h-11 border-2 hover:bg-gray-50 hover:border-gray-300 transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 font-medium" 
+                disabled={isSaving}
+              >
                 <RotateCcw className="h-4 w-4" />
                 Reset
               </Button>
@@ -343,7 +363,7 @@ export default function ConoscenzaPage() {
                   type="button"
                   variant="outline"
                   onClick={handleReset}
-                  className="gap-2 hover:scale-105 transition-transform"
+                  className="gap-2 h-11 border-2 hover:bg-gray-50 hover:border-gray-300 transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 font-medium"
                   disabled={isSaving}
                 >
                   <X className="h-4 w-4" />

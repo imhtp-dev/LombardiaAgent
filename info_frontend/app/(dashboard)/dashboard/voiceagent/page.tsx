@@ -55,11 +55,13 @@ export default function VoiceAgentPage() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="space-y-8 animate-in fade-in duration-500">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Voilà Voice Agent</h1>
-        <p className="text-muted-foreground mt-1">
+      <div className="space-y-1">
+        <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+          Voilà Voice Agent
+        </h1>
+        <p className="text-base text-gray-600">
           Controlla e gestisci i voice agent per regione
         </p>
       </div>
