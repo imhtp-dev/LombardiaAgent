@@ -12,7 +12,8 @@ Benefits:
 - Faster iteration during development
 
 Usage:
-    python chat_test.py                              # Start with greeting (full flow)
+    python chat_test.py                              # Start with router (unified routing - default)
+    python chat_test.py --start-node greeting        # Direct to booking agent (skip router)
     python chat_test.py --start-node email           # Start with email collection
     python chat_test.py --start-node booking         # Start with booking flow
     python chat_test.py --start-node orange_box      # Start from Orange Box flow (RX Caviglia Destra)
@@ -224,7 +225,7 @@ app.add_middleware(
 active_sessions: Dict[str, Any] = {}
 
 # Global config for start node and caller simulation
-global_start_node = "greeting"
+global_start_node = "router"  # Default to unified router
 global_caller_phone = None
 global_patient_dob = None
 
@@ -1063,7 +1064,8 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python chat_test.py                         # Full flow (greeting)
+  python chat_test.py                         # Unified router (default - detects intent)
+  python chat_test.py --start-node greeting   # Direct to booking agent (skip router)
   python chat_test.py --start-node email      # Start with email collection
   python chat_test.py --start-node booking    # Start with booking flow
   python chat_test.py --start-node orange_box # Test Orange Box flow (RX Caviglia Destra)
@@ -1074,9 +1076,9 @@ Examples:
 
     parser.add_argument(
         "--start-node",
-        default="greeting",
-        choices=["greeting", "email", "name", "phone", "fiscal_code", "booking", "slot_selection", "cerba_card", "orange_box"],
-        help="Starting flow node (default: greeting for full flow)"
+        default="router",
+        choices=["router", "greeting", "email", "name", "phone", "fiscal_code", "booking", "slot_selection", "cerba_card", "orange_box"],
+        help="Starting flow node (default: router for unified routing, greeting for direct booking)"
     )
 
     parser.add_argument(

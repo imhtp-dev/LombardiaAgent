@@ -206,7 +206,7 @@ async def websocket_endpoint(websocket: WebSocket):
     business_status = query_params.get("business_status", "open")
     import uuid
     session_id = query_params.get("session_id", f"session-{uuid.uuid4().hex[:8]}")
-    start_node = query_params.get("start_node", "greeting")
+    start_node = query_params.get("start_node", "router")  # Default to unified router
     caller_phone = query_params.get("caller_phone", "")
 
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

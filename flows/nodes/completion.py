@@ -10,6 +10,7 @@ from pipecat_flows import NodeConfig, FlowsFunctionSchema
 from models.requests import HealthService, HealthCenter
 from flows.handlers.service_handlers import search_health_services_and_transition
 from flows.handlers.booking_handlers import handle_booking_modification
+from flows.handlers.agent_routing_handlers import transfer_from_booking_to_info_handler
 from config.settings import settings
 
 
@@ -42,8 +43,17 @@ def create_error_node(error_message: str) -> NodeConfig:
     )
 
 
-def create_booking_success_multi_node(booked_slots: List[Dict], total_price: float) -> NodeConfig:
+def create_booking_success_multi_node(booked_slots: List[Dict], total_price: float, flow_manager=None) -> NodeConfig:
     """Create booking success node with all booking details"""
+
+    # IMPORTANT: Set booking_completed flag to allow info transfers
+    if flow_manager:
+        flow_manager.state["booking_completed"] = True
+        flow_manager.state["booking_in_progress"] = False
+        flow_manager.state["can_transfer_to_info"] = True
+        from loguru import logger
+        logger.success("✅ Booking completed - info transfers now enabled")
+
     bookings_text = []
     for slot in booked_slots:
         # Convert UTC times to Italian local time for user display
@@ -92,6 +102,18 @@ Your bookings are confirmed and you will receive confirmation details shortly.""
             "content": task_content
         }],
         functions=[
+            FlowsFunctionSchema(
+                name="ask_info_question",
+                handler=transfer_from_booking_to_info_handler,
+                description="Transfer to info agent to ask questions about services, prices, clinic hours, exam requirements, documents, or any other information. Use when user has questions after booking is complete.",
+                properties={
+                    "user_question": {
+                        "type": "string",
+                        "description": "The question the user wants to ask (e.g., 'What documents do I need?', 'What are your opening hours?')"
+                    }
+                },
+                required=["user_question"]
+            ),
             FlowsFunctionSchema(
                 name="manage_booking",
                 handler=handle_booking_modification,

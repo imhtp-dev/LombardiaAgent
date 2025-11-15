@@ -64,6 +64,7 @@ def genera_flow(hc_uuid,medical_exam_id):
         #print(formatted_json)
         #print(data)
         resp=data
+        print(resp)
         uuid = data['uuid']
         name = data['name']
         health_service_code = data['health_service_code']
@@ -297,7 +298,7 @@ def genera_flow(hc_uuid,medical_exam_id):
 # Ecografia Addome Superiore
 # 12826519-dd21-4e34-900e-ee8d471974a8
 ########################################
-#risu=genera_flow("c5535638-6c18-444c-955d-89139d8276be","d9eb5830-3c36-4aa1-b0f5-20445ef2e825")
+#risu=genera_flow("c48ff93f-1c88-4621-9cd5-31ad87e83e48","d9eb5830-3c36-4aa1-b0f5-20445ef2e825")
 #print(risu)
 
 

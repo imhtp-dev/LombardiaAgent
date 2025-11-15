@@ -26,9 +26,16 @@ def create_flow_manager(
     return flow_manager
 
 
-async def initialize_flow_manager(flow_manager: FlowManager, start_node: str = "greeting") -> None:
+async def initialize_flow_manager(flow_manager: FlowManager, start_node: str = "router") -> None:
     """Initialize flow manager with specified starting node"""
-    if start_node == "email":
+    if start_node == "router":
+        # NEW: Start with unified router node (default)
+        from flows.nodes.router import create_router_node
+        await flow_manager.initialize(create_router_node())
+    elif start_node == "greeting":
+        # Direct to booking greeting (for testing/debugging)
+        await flow_manager.initialize(create_greeting_node())
+    elif start_node == "email":
         # Create a special entry node that switches STT then goes to email collection
         from pipecat_flows import NodeConfig, FlowsFunctionSchema
         from flows.handlers.patient_detail_handlers import start_email_collection_with_stt_switch
