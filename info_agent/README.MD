@@ -15,7 +15,7 @@ The Info Agent is a voice-based AI assistant that answers medical information qu
 ### Key Features
 
 ✅ Knowledge base queries (FAQs, documents, forms)  
-✅ Competitive/non-competitive visit pricing  
+✅ Competitive/non-Agonisticavisit pricing  
 ✅ Exam requirements by visit type or sport  
 ✅ Clinic information (hours, closures, blood collection times)  
 ✅ Transfer to human operator when needed  
@@ -183,13 +183,13 @@ query_knowledge_base(query: str)
 **Example**: "Quali documenti servono per la visita sportiva?"  
 **Transitions to**: Answer Node  
 
-### 2. Competitive Visit Pricing
+### 2. AgonisticaVisit Pricing
 
 ```python
 get_competitive_visit_price(age: int, gender: str, sport: str, region: str)
 ```
 
-**Purpose**: Get price for competitive (agonistic) visit  
+**Purpose**: Get price for Agonistica(agonistic) visit  
 **Parameters**:
 - `age`: Patient age (integer)
 - `gender`: "M" or "F"
@@ -199,13 +199,13 @@ get_competitive_visit_price(age: int, gender: str, sport: str, region: str)
 **Example**: "Quanto costa una visita agonistica per calcio?"  
 **Transitions to**: Answer Node  
 
-### 3. Non-Competitive Visit Pricing
+### 3. Non-AgonisticaVisit Pricing
 
 ```python
 get_non_competitive_visit_price(ecg_under_stress: bool)
 ```
 
-**Purpose**: Get price for non-competitive visit  
+**Purpose**: Get price for non-Agonisticavisit  
 **Parameters**:
 - `ecg_under_stress`: True if ECG under stress needed
 
@@ -347,7 +347,7 @@ Then open: http://localhost:8082
    Ualà: [Searches KB] "Per gli esami del sangue..."
    ```
 
-2. **Competitive Pricing**:
+2. **AgonisticaPricing**:
    ```
    You: "Quanto costa una visita agonistica?"
    Ualà: "Per darti il prezzo, ho bisogno di alcune informazioni. Quanti anni hai?"

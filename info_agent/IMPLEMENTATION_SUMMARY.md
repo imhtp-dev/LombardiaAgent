@@ -77,7 +77,7 @@ info_agent/api/
 - **File**: `services/pricing_service.py`
 - **APIs**: `/get_price_agonistic_visit`, `/get_price_non_agonistic_visit`
 - **Purpose**: Sports medicine visit pricing
-- **Features**: Competitive/non-competitive pricing, input validation, error handling
+- **Features**: Competitive/non-Agonisticapricing, input validation, error handling
 
 #### 3. Exam Service
 - **File**: `services/exam_service.py`
@@ -121,8 +121,8 @@ info_agent/api/
 ### Handlers Implemented (9 Handlers)
 
 - `query_knowledge_base_handler` - KB queries
-- `get_competitive_price_handler` - Competitive pricing
-- `get_non_competitive_price_handler` - Non-competitive pricing
+- `get_competitive_price_handler` - Agonisticapricing
+- `get_non_competitive_price_handler` - Non-Agonisticapricing
 - `get_exams_by_visit_handler` - Exam list by visit type
 - `get_exams_by_sport_handler` - Exam list by sport
 - `get_clinic_info_handler` - Clinic information

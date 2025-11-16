@@ -46,8 +46,8 @@ async def identify_intent_handler(
             }, create_knowledge_query_node()
         
         elif intent == "competitive_pricing":
-            # Competitive pricing - collect parameters step by step
-            logger.info("→ Routing to competitive pricing flow")
+            # Agonisticapricing - collect parameters step by step
+            logger.info("→ Routing to Agonistica pricing flow")
             from info_agent.flows.nodes.competitive_pricing import create_collect_age_node
             return {
                 "intent": intent,
@@ -55,8 +55,8 @@ async def identify_intent_handler(
             }, create_collect_age_node()
         
         elif intent == "non_competitive_pricing":
-            # Non-competitive pricing flow
-            logger.info("→ Routing to non-competitive pricing flow")
+            # Non-Agonisticapricing flow
+            logger.info("→ Routing to non-Agonistica pricing flow")
             from info_agent.flows.nodes.non_competitive_pricing import create_collect_ecg_preference_node
             return {
                 "intent": intent,

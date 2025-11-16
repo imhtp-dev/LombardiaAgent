@@ -1,5 +1,5 @@
 """
-Competitive Pricing Flow Nodes
+AgonisticaPricing Flow Nodes
 Step-by-step parameter collection following client requirement:
 "Ask ONE question at a time - Never pile up requests"
 """
@@ -159,7 +159,7 @@ def create_competitive_price_result_node() -> NodeConfig:
             FlowsFunctionSchema(
                 name="get_final_price",
                 handler=get_competitive_price_final_handler,
-                description="Get the competitive visit price with all collected parameters from state",
+                description="Get the Agonistica visit price with all collected parameters from state",
                 properties={},  # No properties - uses flow_manager.state
                 required=[]
             )

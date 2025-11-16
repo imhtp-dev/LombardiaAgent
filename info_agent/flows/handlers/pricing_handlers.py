@@ -11,7 +11,7 @@ from pipecat_flows import FlowManager, NodeConfig, FlowArgs
 
 
 # ============================================================================
-# COMPETITIVE PRICING FLOW - Step by Step Collection
+# AgonisticaPRICING FLOW - Step by Step Collection
 # ============================================================================
 
 async def record_age_handler(
@@ -24,7 +24,7 @@ async def record_age_handler(
     try:
         age = args.get("age")
         
-        logger.info(f"📝 Competitive pricing - Recorded age: {age}")
+        logger.info(f"📝 Agonistica pricing - Recorded age: {age}")
         flow_manager.state["competitive_pricing_age"] = age
         
         # Move to gender collection
@@ -47,7 +47,7 @@ async def record_gender_handler(
     try:
         gender = args.get("gender")
         
-        logger.info(f"📝 Competitive pricing - Recorded gender: {gender}")
+        logger.info(f"📝 Agonistica pricing - Recorded gender: {gender}")
         flow_manager.state["competitive_pricing_gender"] = gender
         
         # Move to sport collection
@@ -70,7 +70,7 @@ async def record_sport_handler(
     try:
         sport = args.get("sport")
         
-        logger.info(f"📝 Competitive pricing - Recorded sport: {sport}")
+        logger.info(f"📝 Agonistica pricing - Recorded sport: {sport}")
         flow_manager.state["competitive_pricing_sport"] = sport
         
         # Move to region collection
@@ -94,11 +94,11 @@ async def record_region_handler(
     try:
         region = args.get("region")
         
-        logger.info(f"📝 Competitive pricing - Recorded region: {region}")
+        logger.info(f"📝 Agonistica pricing - Recorded region: {region}")
         flow_manager.state["competitive_pricing_region"] = region
         
         # All parameters collected - move to API call
-        logger.success("✅ All competitive pricing parameters collected")
+        logger.success("✅ All Agonistica pricing parameters collected")
         from info_agent.flows.nodes.competitive_pricing import create_competitive_price_result_node
         return {"region": region, "step": "4/4"}, create_competitive_price_result_node()
         
@@ -122,7 +122,7 @@ async def get_competitive_price_final_handler(
         sport = flow_manager.state.get("competitive_pricing_sport")
         region = flow_manager.state.get("competitive_pricing_region")
         
-        logger.info(f"💰 Getting competitive price:")
+        logger.info(f"💰 Getting Agonistica price:")
         logger.info(f"   Age: {age}, Gender: {gender}")
         logger.info(f"   Sport: {sport}, Region: {region}")
         
@@ -151,7 +151,7 @@ async def get_competitive_price_final_handler(
         )
         
         if result.success:
-            logger.success(f"✅ Competitive price retrieved: €{result.price}")
+            logger.success(f"✅ Agonistica price retrieved: €{result.price}")
             
             # Clean up state for this flow
             flow_manager.state.pop("competitive_pricing_age", None)
@@ -177,7 +177,7 @@ async def get_competitive_price_final_handler(
             }, create_transfer_node()
             
     except Exception as e:
-        logger.error(f"❌ Competitive pricing handler error: {e}")
+        logger.error(f"❌ Agonistica pricing handler error: {e}")
         import traceback
         traceback.print_exc()
         
@@ -186,7 +186,7 @@ async def get_competitive_price_final_handler(
 
 
 # ============================================================================
-# NON-COMPETITIVE PRICING FLOW - Single Parameter
+# NON-AgonisticaPRICING FLOW - Single Parameter
 # ============================================================================
 
 async def record_ecg_preference_handler(
@@ -199,7 +199,7 @@ async def record_ecg_preference_handler(
     try:
         ecg_under_stress = args.get("ecg_under_stress", False)
         
-        logger.info(f"📝 Non-competitive pricing - ECG under stress: {ecg_under_stress}")
+        logger.info(f"📝 Non-Agonistica pricing - ECG under stress: {ecg_under_stress}")
         flow_manager.state["non_competitive_ecg_under_stress"] = ecg_under_stress
         
         # Move to result node
@@ -219,12 +219,12 @@ async def get_non_competitive_price_final_handler(
     flow_manager: FlowManager
 ) -> Tuple[Dict[str, Any], NodeConfig]:
     """
-    Call non-competitive pricing API
+    Call non-Agonistica pricing API
     """
     try:
         ecg_under_stress = flow_manager.state.get("non_competitive_ecg_under_stress", False)
         
-        logger.info(f"💰 Getting non-competitive price (ECG under stress: {ecg_under_stress})")
+        logger.info(f"💰 Getting non-Agonistica price (ECG under stress: {ecg_under_stress})")
         
         # Call pricing service
         from info_agent.services.pricing_service import pricing_service
@@ -233,7 +233,7 @@ async def get_non_competitive_price_final_handler(
         )
         
         if result.success:
-            logger.success(f"✅ Non-competitive price retrieved: €{result.price}")
+            logger.success(f"✅ Non-Agonistica price retrieved: €{result.price}")
             
             # Clean up state
             flow_manager.state.pop("non_competitive_ecg_under_stress", None)
@@ -255,7 +255,7 @@ async def get_non_competitive_price_final_handler(
             }, create_transfer_node()
             
     except Exception as e:
-        logger.error(f"❌ Non-competitive pricing handler error: {e}")
+        logger.error(f"❌ Non-Agonistica pricing handler error: {e}")
         import traceback
         traceback.print_exc()
         

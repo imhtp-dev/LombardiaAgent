@@ -1,0 +1,299 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1400">
+  <!-- Title -->
+  <text x="600" y="30" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#333">
+    Unified Agent Routing Flow
+  </text>
+
+  <!-- Incoming Call -->
+  <rect x="500" y="60" width="200" height="60" rx="10" fill="#4CAF50" stroke="#2E7D32" stroke-width="2"/>
+  <text x="600" y="95" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+    Incoming Call
+  </text>
+  <text x="600" y="110" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="white">
+    (Talkdesk)
+  </text>
+
+  <!-- Arrow down -->
+  <path d="M 600 120 L 600 170" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+  <!-- Initial Router Node -->
+  <rect x="450" y="170" width="300" height="80" rx="10" fill="#2196F3" stroke="#1565C0" stroke-width="2"/>
+  <text x="600" y="200" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+    Initial Router Node
+  </text>
+  <text x="600" y="220" font-family="Arial, sans-serif" font-size="13" text-anchor="middle" fill="white">
+    "Hello, I'm Ualà. How can I help?"
+  </text>
+  <text x="600" y="240" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="white">
+    Detects: booking intent vs info intent
+  </text>
+
+  <!-- Split arrows -->
+  <path d="M 600 250 L 600 290" stroke="#333" stroke-width="2" fill="none"/>
+  <path d="M 600 290 L 300 290 L 300 350" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  <path d="M 600 290 L 900 290 L 900 350" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+  <!-- Info Agent Box -->
+  <g id="info-agent">
+    <rect x="50" y="350" width="500" height="550" rx="15" fill="#FFF3E0" stroke="#FF9800" stroke-width="3" stroke-dasharray="5,5"/>
+
+    <!-- Info Agent Title -->
+    <rect x="150" y="340" width="300" height="40" rx="5" fill="#FF9800"/>
+    <text x="300" y="365" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+      INFO AGENT FLOW
+    </text>
+
+    <!-- Info Greeting Node -->
+    <rect x="100" y="410" width="400" height="100" rx="8" fill="#FFE082" stroke="#F57C00" stroke-width="2"/>
+    <text x="300" y="435" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#333">
+      Info Agent Greeting Node
+    </text>
+    <text x="300" y="455" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#555">
+      Available Functions:
+    </text>
+    <text x="300" y="472" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#555">
+      ✓ query_knowledge_base
+    </text>
+    <text x="300" y="487" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#555">
+      ✓ get_pricing | get_exams | get_clinic_info
+    </text>
+    <text x="300" y="502" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#D84315">
+      ✓ transfer_to_booking_agent ⚡
+    </text>
+
+    <!-- Info Answer Flow -->
+    <rect x="100" y="540" width="400" height="70" rx="8" fill="#FFCC80" stroke="#F57C00" stroke-width="2"/>
+    <text x="300" y="565" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#333">
+      Answer Info Questions
+    </text>
+    <text x="300" y="585" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#555">
+      Knowledge base, pricing, exams, clinic hours
+    </text>
+    <text x="300" y="600" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#555">
+      Can transfer to booking ANYTIME ⚡
+    </text>
+
+    <!-- Transfer Options -->
+    <rect x="100" y="640" width="180" height="60" rx="8" fill="#4CAF50" stroke="#2E7D32" stroke-width="2"/>
+    <text x="190" y="665" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      Transfer to
+    </text>
+    <text x="190" y="685" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      Booking Agent ➜
+    </text>
+
+    <rect x="320" y="640" width="180" height="60" rx="8" fill="#9E9E9E" stroke="#616161" stroke-width="2"/>
+    <text x="410" y="665" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      Transfer to
+    </text>
+    <text x="410" y="685" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      Human Operator
+    </text>
+
+    <!-- State Info -->
+    <rect x="100" y="730" width="400" height="150" rx="8" fill="#E3F2FD" stroke="#1976D2" stroke-width="2"/>
+    <text x="300" y="755" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1565C0">
+      State Management
+    </text>
+    <text x="120" y="780" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["current_agent"] = "info"
+    </text>
+    <text x="120" y="800" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["booking_in_progress"] = False
+    </text>
+    <text x="120" y="820" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["can_transfer"] = True
+    </text>
+    <text x="300" y="850" font-family="Arial, sans-serif" font-size="11" font-style="italic" text-anchor="middle" fill="#666">
+      ✓ Info agent can ALWAYS transfer to booking
+    </text>
+    <text x="300" y="870" font-family="Arial, sans-serif" font-size="11" font-style="italic" text-anchor="middle" fill="#666">
+      ✓ Stateless info queries, easy to switch
+    </text>
+  </g>
+
+  <!-- Booking Agent Box -->
+  <g id="booking-agent">
+    <rect x="650" y="350" width="500" height="850" rx="15" fill="#E8F5E9" stroke="#4CAF50" stroke-width="3" stroke-dasharray="5,5"/>
+
+    <!-- Booking Agent Title -->
+    <rect x="750" y="340" width="300" height="40" rx="5" fill="#4CAF50"/>
+    <text x="900" y="365" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+      BOOKING AGENT FLOW
+    </text>
+
+    <!-- Booking Start -->
+    <rect x="700" y="410" width="400" height="70" rx="8" fill="#81C784" stroke="#2E7D32" stroke-width="2"/>
+    <text x="900" y="435" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#fff">
+      Start Booking Flow
+    </text>
+    <text x="900" y="455" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#fff">
+      Service selection, center selection
+    </text>
+    <text x="900" y="470" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#FFEB3B">
+      🔒 NO TRANSFER during booking
+    </text>
+
+    <!-- Booking Steps -->
+    <rect x="700" y="510" width="400" height="180" rx="8" fill="#A5D6A7" stroke="#2E7D32" stroke-width="2"/>
+    <text x="900" y="535" font-family="Arial, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" fill="#1B5E20">
+      Booking Steps (Protected)
+    </text>
+    <text x="720" y="560" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#333">
+      1. Search and select health service
+    </text>
+    <text x="720" y="580" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#333">
+      2. Select health center
+    </text>
+    <text x="720" y="600" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#333">
+      3. Collect patient details (name, phone, DOB)
+    </text>
+    <text x="720" y="620" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#333">
+      4. Select appointment date/time
+    </text>
+    <text x="720" y="640" font-family="Arial, sans-serif" font-size="11" text-anchor="start" fill="#333">
+      5. Confirm booking details
+    </text>
+    <text x="900" y="670" font-family="Arial, sans-serif" font-size="10" font-weight="bold" text-anchor="middle" fill="#C62828">
+      ⚠️ No info transfer available during this phase
+    </text>
+
+    <!-- Completion Node -->
+    <rect x="700" y="720" width="400" height="100" rx="8" fill="#66BB6A" stroke="#1B5E20" stroke-width="2"/>
+    <text x="900" y="745" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">
+      Booking Completion Node
+    </text>
+    <text x="900" y="765" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="white">
+      "Your booking is confirmed!"
+    </text>
+    <text x="900" y="785" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="white">
+      New function available:
+    </text>
+    <text x="900" y="805" font-family="Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#FFEB3B">
+      ✓ ask_info_question ⚡
+    </text>
+
+    <!-- Post-Booking Options -->
+    <rect x="700" y="850" width="180" height="60" rx="8" fill="#FF9800" stroke="#E65100" stroke-width="2"/>
+    <text x="790" y="875" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      Ask Info
+    </text>
+    <text x="790" y="895" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      Questions ➜
+    </text>
+
+    <rect x="920" y="850" width="180" height="60" rx="8" fill="#9E9E9E" stroke="#424242" stroke-width="2"/>
+    <text x="1010" y="875" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      End Call
+    </text>
+    <text x="1010" y="895" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="white">
+      Goodbye
+    </text>
+
+    <!-- State Info -->
+    <rect x="700" y="940" width="400" height="240" rx="8" fill="#E3F2FD" stroke="#1976D2" stroke-width="2"/>
+    <text x="900" y="965" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#1565C0">
+      State Management
+    </text>
+    <text x="720" y="990" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["current_agent"] = "booking"
+    </text>
+    <text x="720" y="1010" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["booking_in_progress"] = True
+    </text>
+    <text x="720" y="1030" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["can_transfer"] = False
+    </text>
+    <text x="720" y="1050" font-family="Monaco, monospace" font-size="10" fill="#333">
+      // After completion:
+    </text>
+    <text x="720" y="1070" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["booking_completed"] = True
+    </text>
+    <text x="720" y="1090" font-family="Monaco, monospace" font-size="10" fill="#333">
+      flow_manager.state["can_transfer"] = True
+    </text>
+    <text x="900" y="1120" font-family="Arial, sans-serif" font-size="11" font-style="italic" text-anchor="middle" fill="#666">
+      ✓ Booking flow protected from interruptions
+    </text>
+    <text x="900" y="1140" font-family="Arial, sans-serif" font-size="11" font-style="italic" text-anchor="middle" fill="#666">
+      ✓ User must complete or abandon booking
+    </text>
+    <text x="900" y="1160" font-family="Arial, sans-serif" font-size="11" font-style="italic" text-anchor="middle" fill="#666">
+      ✓ Info transfer ONLY after completion
+    </text>
+  </g>
+
+  <!-- Transfer Arrow from Info to Booking -->
+  <path d="M 500 670 L 600 670 L 600 445 L 700 445" stroke="#4CAF50" stroke-width="3" fill="none" marker-end="url(#arrowhead-green)" stroke-dasharray="8,4"/>
+  <text x="550" y="650" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#2E7D32">
+    transfer_to_booking_agent()
+  </text>
+  <text x="550" y="665" font-family="Arial, sans-serif" font-size="10" fill="#2E7D32">
+    Available ANYTIME
+  </text>
+
+  <!-- Transfer Arrow from Booking to Info (after completion) -->
+  <path d="M 880 850 L 880 820 L 550 820 L 550 640" stroke="#FF9800" stroke-width="3" fill="none" marker-end="url(#arrowhead-orange)" stroke-dasharray="8,4"/>
+  <text x="650" y="810" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#E65100">
+    ask_info_question()
+  </text>
+  <text x="650" y="825" font-family="Arial, sans-serif" font-size="10" fill="#E65100">
+    Only after booking complete
+  </text>
+
+  <!-- Legend -->
+  <g id="legend">
+    <rect x="50" y="1230" width="1100" height="140" rx="10" fill="#F5F5F5" stroke="#9E9E9E" stroke-width="2"/>
+    <text x="600" y="1260" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="#333">
+      Legend &amp; Key Rules
+    </text>
+
+    <text x="80" y="1290" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">
+      ✓ Initial Router:
+    </text>
+    <text x="100" y="1310" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      Detects user intent and routes to appropriate agent
+    </text>
+
+    <text x="480" y="1290" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">
+      ✓ Info Agent Rules:
+    </text>
+    <text x="500" y="1310" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      Can transfer to booking ANYTIME (stateless queries)
+    </text>
+
+    <text x="850" y="1290" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#333">
+      ✓ Booking Agent Rules:
+    </text>
+    <text x="870" y="1310" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      NO transfer during booking (protected flow)
+    </text>
+    <text x="870" y="1330" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      Info transfer ONLY after completion
+    </text>
+
+    <line x1="80" y1="1340" x2="200" y2="1340" stroke="#4CAF50" stroke-width="3" stroke-dasharray="8,4"/>
+    <text x="210" y="1345" font-family="Arial, sans-serif" font-size="10" fill="#555">
+      = Info → Booking transfer (always available)
+    </text>
+
+    <line x1="500" y1="1340" x2="620" y2="1340" stroke="#FF9800" stroke-width="3" stroke-dasharray="8,4"/>
+    <text x="630" y="1345" font-family="Arial, sans-serif" font-size="10" fill="#555">
+      = Booking → Info transfer (post-completion only)
+    </text>
+  </g>
+
+  <!-- Arrow markers -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#333"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#4CAF50"/>
+    </marker>
+    <marker id="arrowhead-orange" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#FF9800"/>
+    </marker>
+  </defs>
+</svg>

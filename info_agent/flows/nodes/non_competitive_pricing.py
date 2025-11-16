@@ -1,5 +1,5 @@
 """
-Non-Competitive Pricing Flow Nodes
+Non-AgonisticaPricing Flow Nodes
 Simpler flow - only needs ECG preference
 """
 
@@ -10,7 +10,7 @@ from info_agent.config.settings import info_settings
 def create_collect_ecg_preference_node() -> NodeConfig:
     """
     Ask if ECG under stress is needed
-    Only parameter for non-competitive pricing
+    Only parameter for non-Agonistica pricing
     """
     from info_agent.flows.handlers.pricing_handlers import record_ecg_preference_handler
     
@@ -41,7 +41,7 @@ def create_collect_ecg_preference_node() -> NodeConfig:
 
 def create_non_competitive_price_result_node() -> NodeConfig:
     """
-    Call non-competitive pricing API with ECG preference from state
+    Call non-Agonistica pricing API with ECG preference from state
     """
     from info_agent.flows.handlers.pricing_handlers import get_non_competitive_price_final_handler
     
@@ -63,7 +63,7 @@ def create_non_competitive_price_result_node() -> NodeConfig:
             FlowsFunctionSchema(
                 name="get_non_competitive_price_final",
                 handler=get_non_competitive_price_final_handler,
-                description="Get the non-competitive visit price with ECG preference from state",
+                description="Get the non-Agonistica visit price with ECG preference from state",
                 properties={},  # Uses flow_manager.state
                 required=[]
             )

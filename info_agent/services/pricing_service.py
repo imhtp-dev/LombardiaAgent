@@ -1,6 +1,6 @@
 """
 Pricing Service
-Handles competitive and non-competitive sports medicine visit pricing
+Handles Agonisticaand non-Agonisticasports medicine visit pricing
 """
 
 import asyncio
@@ -31,8 +31,8 @@ class PricingService:
         self.timeout = info_settings.api_timeout
         self.session: Optional[aiohttp.ClientSession] = None
         logger.info(f"💰 Pricing Service initialized")
-        logger.debug(f"💰 Competitive URL: {self.agonistic_url}")
-        logger.debug(f"💰 Non-competitive URL: {self.non_agonistic_url}")
+        logger.debug(f"💰 Agonistica URL: {self.agonistic_url}")
+        logger.debug(f"💰 Non-Agonistica URL: {self.non_agonistic_url}")
     
     async def initialize(self):
         """Initialize HTTP session"""
@@ -48,7 +48,7 @@ class PricingService:
         region: str
     ) -> PriceResult:
         """
-        Get price for competitive (agonistic) sports medicine visit
+        Get price for Agonistica(agonistic) sports medicine visit
         
         Args:
             age: Patient age in years
@@ -68,7 +68,7 @@ class PricingService:
                 logger.warning(f"⚠️ Invalid gender '{gender}', defaulting to M")
                 gender = "M"
             
-            logger.info(f"💰 Getting competitive price: age={age}, gender={gender}, sport={sport}, region={region}")
+            logger.info(f"💰 Getting Agonistica price: age={age}, gender={gender}, sport={sport}, region={region}")
             
             request_data = {
                 "age": age,
@@ -87,9 +87,9 @@ class PricingService:
                 data = await response.json()
                 
                 price = data.get("price", 0.0)
-                visit_type = data.get("visit_type", "Competitive Visit")
+                visit_type = data.get("visit_type", "Agonistica Visit")
                 
-                logger.success(f"✅ Competitive price: €{price} (visit type: {visit_type})")
+                logger.success(f"✅ Agonistica price: €{price} (visit type: {visit_type})")
                 
                 return PriceResult(
                     price=price,
@@ -99,7 +99,7 @@ class PricingService:
                 )
                 
         except aiohttp.ClientResponseError as e:
-            logger.error(f"❌ Competitive price API error {e.status}: {e.message}")
+            logger.error(f"❌ Agonistica price API error {e.status}: {e.message}")
             return PriceResult(
                 price=0.0,
                 visit_type="Error",
@@ -108,7 +108,7 @@ class PricingService:
             )
         
         except asyncio.TimeoutError:
-            logger.error(f"❌ Competitive price query timeout after {self.timeout}s")
+            logger.error(f"❌ Agonistica price query timeout after {self.timeout}s")
             return PriceResult(
                 price=0.0,
                 visit_type="Timeout",
@@ -117,7 +117,7 @@ class PricingService:
             )
         
         except Exception as e:
-            logger.error(f"❌ Competitive price query failed: {e}")
+            logger.error(f"❌ Agonisticaprice query failed: {e}")
             return PriceResult(
                 price=0.0,
                 visit_type="Error",
@@ -130,7 +130,7 @@ class PricingService:
         ecg_under_stress: bool
     ) -> PriceResult:
         """
-        Get price for non-competitive (non-agonistic) sports medicine visit
+        Get price for non-Agonistica(non-agonistic) sports medicine visit
         
         Args:
             ecg_under_stress: Whether ECG under stress is needed (True) or standard ECG (False)
@@ -141,7 +141,7 @@ class PricingService:
         try:
             await self.initialize()
             
-            logger.info(f"💰 Getting non-competitive price: ECG under stress={ecg_under_stress}")
+            logger.info(f"💰 Getting non-Agonistica price: ECG under stress={ecg_under_stress}")
             
             request_data = {
                 "ecg_under_stress": ecg_under_stress
@@ -157,9 +157,9 @@ class PricingService:
                 data = await response.json()
                 
                 price = data.get("price", 0.0)
-                visit_type = "Non-Competitive Visit" + (" with ECG under stress" if ecg_under_stress else "")
+                visit_type = "Non-AgonisticaVisit" + (" with ECG under stress" if ecg_under_stress else "")
                 
-                logger.success(f"✅ Non-competitive price: €{price}")
+                logger.success(f"✅ Non-Agonistica price: €{price}")
                 
                 return PriceResult(
                     price=price,
@@ -169,7 +169,7 @@ class PricingService:
                 )
                 
         except aiohttp.ClientResponseError as e:
-            logger.error(f"❌ Non-competitive price API error {e.status}: {e.message}")
+            logger.error(f"❌ Non-Agonisticaprice API error {e.status}: {e.message}")
             return PriceResult(
                 price=0.0,
                 visit_type="Error",
@@ -178,7 +178,7 @@ class PricingService:
             )
         
         except asyncio.TimeoutError:
-            logger.error(f"❌ Non-competitive price query timeout after {self.timeout}s")
+            logger.error(f"❌ Non-Agonistica price query timeout after {self.timeout}s")
             return PriceResult(
                 price=0.0,
                 visit_type="Timeout",
@@ -187,7 +187,7 @@ class PricingService:
             )
         
         except Exception as e:
-            logger.error(f"❌ Non-competitive price query failed: {e}")
+            logger.error(f"❌ Non-Agonistica price query failed: {e}")
             return PriceResult(
                 price=0.0,
                 visit_type="Error",
