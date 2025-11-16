@@ -78,7 +78,7 @@ export default function VerificaConoscenzaPage() {
       }
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/chat/send`,
+        `${process.env.NEXT_PUBLIC_API_URL}/chat/send`,
         {
           method: "POST",
           headers: {
