@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,16 @@ interface VoiceClientProps {
   onTranscriptUpdate?: (role: "user" | "assistant", text: string) => void;
 }
 
+// Get WebSocket URL from environment or use relative path
+const getDefaultWsUrl = () => {
+  if (typeof window === 'undefined') return 'ws://localhost:8000/ws';
+  
+  // Use same host as the page with ws:// or wss:// based on http:// or https://
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  return `${protocol}//${host}/ws`;
+};
+
 interface TranscriptEntry {
   id: string;
   role: "user" | "assistant";
@@ -37,13 +47,15 @@ interface TranscriptEntry {
 }
 
 export function VoiceClient({
-  wsUrl = "ws://localhost:8081/ws",
+  wsUrl,
   sessionId,
   startNode = "greeting",
   callerPhone = "",
   onConnectionChange,
   onTranscriptUpdate,
 }: VoiceClientProps) {
+  // Use provided wsUrl or auto-detect from current host
+  const defaultWsUrl = wsUrl || getDefaultWsUrl();
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -60,8 +72,11 @@ export function VoiceClient({
   const audioQueueRef = useRef<Float32Array[]>([]);
   const isPlayingRef = useRef(false);
 
-  // Generate session ID if not provided
-  const currentSessionId = sessionId || `web-${Date.now().toString(36)}`;
+  // Generate session ID if not provided (useMemo to avoid re-computation)
+  const currentSessionId = useMemo(
+    () => sessionId || `web-${Date.now().toString(36)}`,
+    [sessionId]
+  );
 
   // Cleanup function
   const cleanup = useCallback(() => {
@@ -177,7 +192,7 @@ export function VoiceClient({
       audioContextRef.current = new AudioContext({ sampleRate: 16000 });
 
       // Build WebSocket URL with parameters
-      const url = new URL(wsUrl);
+      const url = new URL(defaultWsUrl);
       url.searchParams.set("session_id", currentSessionId);
       url.searchParams.set("start_node", startNode);
       if (callerPhone) {
