@@ -92,13 +92,19 @@ jobs:
           script: |
             cd /home/azureuser/voilavoicebooking
 
-            # Pull latest code
+            # Pull latest code (force update to match remote)
             echo "📥 Pulling latest code..."
             
             # Store old commit hash before pulling
             OLD_COMMIT=$(git rev-parse HEAD)
-            git pull origin main
+            
+            # Force update to match remote (handles divergent branches)
+            git fetch origin main
+            git reset --hard origin/main
+            
             NEW_COMMIT=$(git rev-parse HEAD)
+            
+            echo "Updated from $OLD_COMMIT to $NEW_COMMIT"
             
             # Check if config files changed
             if [ "$OLD_COMMIT" != "$NEW_COMMIT" ]; then
