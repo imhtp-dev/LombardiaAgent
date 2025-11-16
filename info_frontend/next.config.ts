@@ -5,8 +5,7 @@ const nextConfig: NextConfig = {
   output: 'standalone', // Enable standalone build for Docker
   typescript:{
     ignoreBuildErrors:true
-  },
-  
+  }
 };
 
 export default nextConfig;

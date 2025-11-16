@@ -47,6 +47,9 @@ from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from info_agent.flows.manager import create_flow_manager, initialize_flow_manager
 from info_agent.config.settings import info_settings
 
+# Adjust path for Docker environment
+sys.path.insert(0, '/app')
+
 # Reuse components from booking agent
 from pipeline.components import (
     create_stt_service,

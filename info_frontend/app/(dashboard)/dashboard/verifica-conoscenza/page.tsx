@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Send, MessageSquare, Bot, User, Loader2, Trash2, Sparkles, Database, Network } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Send, MessageSquare, Bot, User, Loader2, Trash2, Sparkles, Database, Network, Mic, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { VoiceClient } from "@/components/voice/voice-client";
 
 interface Message {
   id: string;
@@ -22,22 +24,24 @@ export default function VerificaConoscenzaPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [charCount, setCharCount] = useState(0);
+  const [activeTab, setActiveTab] = useState<string>("chat");
+  const [isVoiceConnected, setIsVoiceConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const currentAssistantMessageRef = useRef<string>("");
+
   const maxChars = 1000;
 
   // Check API connection on mount
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        const response = await fetch('http://localhost:8081/health');
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/health`);
         if (response.ok) {
           setIsConnected(true);
         }
       } catch (error) {
         setIsConnected(false);
+        console.log(error)
       }
     };
     
@@ -73,17 +77,20 @@ export default function VerificaConoscenzaPage() {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch('http://localhost:8081/api/chat/send', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: messageToSend,
-          region: 'Piemonte'
-        })
-      });
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/chat/send`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: messageToSend,
+            region: "Piemonte",
+          }),
+        }
+      );
 
       if (!response.ok) {
         throw new Error('API request failed');
@@ -132,34 +139,65 @@ export default function VerificaConoscenzaPage() {
               Verifica Conoscenza
             </h1>
             <p className="text-base text-gray-600">
-              Testa la conoscenza del voice agent in tempo reale
+              Testa la conoscenza dell agent tramite chat testuale o conversazione vocale
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className={cn(
-                "absolute inset-0 rounded-full blur-md opacity-20 animate-pulse",
-                isConnected ? "bg-green-500" : "bg-red-500"
-              )}></div>
-              <Badge 
-                variant="outline"
-                className={cn(
-                  "relative gap-2 px-4 py-1.5 backdrop-blur-sm",
-                  isConnected 
-                    ? "border-green-200 bg-green-50/50 text-green-700" 
-                    : "border-red-200 bg-red-50/50 text-red-700"
-                )}
-              >
-                <span className="relative flex h-2 w-2">
-                  {isConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
-                  <span className={cn(
-                    "relative inline-flex rounded-full h-2 w-2",
-                    isConnected ? "bg-green-500" : "bg-red-500"
-                  )}></span>
-                </span>
-                {isConnected ? "Connesso" : "Disconnesso"}
-              </Badge>
-            </div>
+            {/* Chat API Status */}
+            {activeTab === "chat" && (
+              <div className="relative">
+                <div className={cn(
+                  "absolute inset-0 rounded-full blur-md opacity-20 animate-pulse",
+                  isConnected ? "bg-green-500" : "bg-red-500"
+                )}></div>
+                <Badge 
+                  variant="outline"
+                  className={cn(
+                    "relative gap-2 px-4 py-1.5 backdrop-blur-sm",
+                    isConnected 
+                      ? "border-green-200 bg-green-50/50 text-green-700" 
+                      : "border-red-200 bg-red-50/50 text-red-700"
+                  )}
+                >
+                  <span className="relative flex h-2 w-2">
+                    {isConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
+                    <span className={cn(
+                      "relative inline-flex rounded-full h-2 w-2",
+                      isConnected ? "bg-green-500" : "bg-red-500"
+                    )}></span>
+                  </span>
+                  Chat API {isConnected ? "Connesso" : "Disconnesso"}
+                </Badge>
+              </div>
+            )}
+            
+            {/* Voice WebSocket Status */}
+            {activeTab === "voice" && (
+              <div className="relative">
+                <div className={cn(
+                  "absolute inset-0 rounded-full blur-md opacity-20 animate-pulse",
+                  isVoiceConnected ? "bg-green-500" : "bg-gray-500"
+                )}></div>
+                <Badge 
+                  variant="outline"
+                  className={cn(
+                    "relative gap-2 px-4 py-1.5 backdrop-blur-sm",
+                    isVoiceConnected 
+                      ? "border-green-200 bg-green-50/50 text-green-700" 
+                      : "border-gray-200 bg-gray-50/50 text-gray-700"
+                  )}
+                >
+                  <span className="relative flex h-2 w-2">
+                    {isVoiceConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>}
+                    <span className={cn(
+                      "relative inline-flex rounded-full h-2 w-2",
+                      isVoiceConnected ? "bg-green-500" : "bg-gray-500"
+                    )}></span>
+                  </span>
+                  Voice {isVoiceConnected ? "Connesso" : "Disconnesso"}
+                </Badge>
+              </div>
+            )}
             <Button 
               variant="outline" 
               onClick={handleClearChat} 
@@ -219,16 +257,30 @@ export default function VerificaConoscenzaPage() {
         </div>
       </div>
 
-      {/* Chat Interface */}
-      <Card className="flex flex-col border-gray-100 shadow-md overflow-hidden" style={{ height: '600px' }}>
-        <CardHeader className="border-b bg-gradient-to-r from-blue-50/50 to-white flex-shrink-0 py-4">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-              <Sparkles className="h-5 w-5 text-white" />
-            </div>
-            Conversazione con Voice Agent
-          </CardTitle>
-        </CardHeader>
+      {/* Tabs for Chat and Voice */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto">
+          <TabsTrigger value="chat" className="gap-2">
+            <MessageCircle className="h-4 w-4" />
+            Chat Testuale
+          </TabsTrigger>
+          <TabsTrigger value="voice" className="gap-2">
+            <Mic className="h-4 w-4" />
+            Conversazione Vocale
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Chat Interface */}
+        <TabsContent value="chat" className="mt-6">
+          <Card className="flex flex-col border-gray-100 shadow-md overflow-hidden" style={{ height: '600px' }}>
+            <CardHeader className="border-b bg-gradient-to-r from-blue-50/50 to-white flex-shrink-0 py-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                  <Sparkles className="h-5 w-5 text-white" />
+                </div>
+                Chat Testuale con Voice Agent
+              </CardTitle>
+            </CardHeader>
         
         <div className="flex-1 overflow-y-auto p-4 bg-gray-50/30" style={{ minHeight: 0 }}>
           {messages.length === 0 ? (
@@ -360,8 +412,19 @@ export default function VerificaConoscenzaPage() {
               </p>
             </div>
           </form>
-        </div>
-      </Card>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* Voice Interface */}
+        <TabsContent value="voice" className="mt-6">
+          <VoiceClient
+            wsUrl="ws://localhost:8081/ws"
+            startNode="greeting"
+            onConnectionChange={setIsVoiceConnected}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Instructions */}
       <Card className="border-gray-100 shadow-sm flex-shrink-0">

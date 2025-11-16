@@ -3,7 +3,7 @@ Flow Manager
 Initializes and manages conversation flows for info agent
 """
 
-from pipecat_flows import FlowManager
+from pipecat_flows import FlowManager, ContextStrategy, ContextStrategyConfig
 from pipecat.pipeline.task import PipelineTask
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
@@ -18,7 +18,12 @@ def create_flow_manager(
     transport: FastAPIWebsocketTransport
 ) -> FlowManager:
     """
-    Create FlowManager for info agent
+    Create FlowManager for info agent with appropriate context strategy
+    
+    Context Strategy: RESET_WITH_SUMMARY
+    - For multi-query info agents, prevents context overflow
+    - Keeps important information while managing token usage
+    - Pipecat recommendation for info/FAQ agents
     
     Args:
         task: Pipeline task instance
@@ -31,15 +36,18 @@ def create_flow_manager(
     """
     logger.info("🔄 Creating FlowManager for Info Agent")
     
-   
     flow_manager = FlowManager(
         task=task,
         llm=llm,
         context_aggregator=context_aggregator,
-        transport=transport
+        transport=transport,
+        context_strategy=ContextStrategyConfig(
+            strategy=ContextStrategy.RESET_WITH_SUMMARY,
+            summary_prompt="Summarize the key information provided to the patient and any parameters collected so far."
+        )
     )
     
-    logger.success("✅ FlowManager created for Info Agent")
+    logger.success("✅ FlowManager created with RESET_WITH_SUMMARY context strategy")
     return flow_manager
 
 
