@@ -34,7 +34,10 @@ export default function LoginPage() {
 
       if (result.success) {
         // Token is already stored in localStorage by authApi.login
-        router.push("/dashboard");
+        // Use setTimeout to avoid React hydration error
+        setTimeout(() => {
+          router.replace("/dashboard");
+        }, 100);
       } else {
         setError(result.message || "Errore durante il login");
       }
