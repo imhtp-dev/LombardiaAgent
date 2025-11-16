@@ -1,34 +1,40 @@
 """
 Info Agent Chat Test Interface
 Text-only testing interface for rapid development and testing
+Based on booking agent's working chat_test.py structure
 """
 
 import os
 import sys
 import asyncio
-import json
-from typing import Dict, Any
+import argparse
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from loguru import logger
 
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path for booking agent imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Pipecat imports
 from pipecat.frames.frames import (
     Frame,
-    TranscriptionFrame,
     TextFrame,
-    EndFrame
+    TranscriptionFrame,
+    LLMMessagesFrame,
+    LLMFullResponseEndFrame,
+    EndFrame,
+    StartFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame
 )
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 # Import flow management
 from info_agent.flows.manager import create_flow_manager, initialize_flow_manager
@@ -44,99 +50,144 @@ load_dotenv(override=True)
 
 
 class TextInputProcessor(FrameProcessor):
-   
-    
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-        
-        if isinstance(frame, TextFrame):
-            # Convert text to transcription frame
-            transcription = TranscriptionFrame(
-                text=frame.text,
-                user_id="test_user",
-                timestamp=asyncio.get_event_loop().time()
-            )
-            await self.push_frame(transcription, direction)
-        else:
-            await self.push_frame(frame, direction)
+    """
+    Processor that converts incoming text messages to TextFrame
+    and adds them to the conversation context
+    """
 
-
-class TextOutputProcessor(FrameProcessor):
-   
-    
-    def __init__(self, websocket: WebSocket):
+    def __init__(self):
         super().__init__()
-        self.websocket = websocket
-        self.current_response = ""
-    
+        logger.info("💬 TextInputProcessor initialized")
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
+        """Process incoming frames"""
+        # CRITICAL: Call super() first to properly initialize the processor
         await super().process_frame(frame, direction)
-        
-        # Capture LLM text output
-        from pipecat.frames.frames import LLMTextFrame, LLMFullResponseEndFrame
-        
-        if isinstance(frame, LLMTextFrame):
-            # Accumulate response text
-            self.current_response += frame.text
-            
-            # Stream to browser
-            try:
-                await self.websocket.send_json({
-                    "type": "assistant_delta",
-                    "text": frame.text
-                })
-            except Exception as e:
-                logger.error(f"Error sending delta: {e}")
-        
-        elif isinstance(frame, LLMFullResponseEndFrame):
-            # Response complete
-            logger.info(f"🤖 Assistant: {self.current_response}")
-            
-            try:
-                await self.websocket.send_json({
-                    "type": "assistant_complete",
-                    "text": self.current_response
-                })
-            except Exception as e:
-                logger.error(f"Error sending completion: {e}")
-            
-            # Reset for next response
-            self.current_response = ""
-        
+
+        # Push all frames downstream
         await self.push_frame(frame, direction)
 
 
-class TextTransportSimulator:
-  
-    
+class TextOutputProcessor(FrameProcessor):
+    """
+    Processor that captures LLM text output and sends to WebSocket
+    """
+
     def __init__(self, websocket: WebSocket):
+        super().__init__()
         self.websocket = websocket
-        self.text_input = TextInputProcessor()
-        self.text_output = None
-    
-    def input(self):
-        return self.text_input
-    
-    def output(self):
-        if not self.text_output:
-            self.text_output = TextOutputProcessor(self.websocket)
-        return self.text_output
-    
-    def event_handler(self, event_name: str):
-        """Decorator for event handlers"""
-        def decorator(func):
-            return func
-        return decorator
+        self._buffer = ""
+        logger.info("💬 TextOutputProcessor initialized")
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        """Process outgoing frames and send text to WebSocket"""
+        # CRITICAL: Call super() first to properly initialize the processor
+        await super().process_frame(frame, direction)
+
+        # ONLY capture text going DOWNSTREAM (from LLM to output)
+        # NOT upstream text (user input)
+        if isinstance(frame, TextFrame) and direction == FrameDirection.DOWNSTREAM:
+            text = frame.text
+            self._buffer += text
+
+            # Send partial response to WebSocket for streaming effect
+            try:
+                await self.websocket.send_json({
+                    "type": "assistant_message_chunk",
+                    "text": text
+                })
+                logger.debug(f"📤 Sent text chunk to browser: {text[:50]}...")
+            except Exception as e:
+                logger.error(f"❌ Failed to send text chunk: {e}")
+
+        # When LLM finishes, send complete message
+        elif isinstance(frame, (LLMFullResponseEndFrame, EndFrame)) and self._buffer:
+            try:
+                await self.websocket.send_json({
+                    "type": "assistant_message_complete",
+                    "text": self._buffer
+                })
+                logger.info(f"✅ Complete message sent: {self._buffer[:100]}...")
+                self._buffer = ""
+            except Exception as e:
+                logger.error(f"❌ Failed to send complete message: {e}")
+
+        await self.push_frame(frame, direction)
+
+
+class TextTransportSimulator(FrameProcessor):
+    """
+    Simulates a transport layer for text-only communication
+    Acts as both input and output processor
+    """
+
+    def __init__(self, websocket: WebSocket):
+        super().__init__()
+        self.websocket = websocket
+        self._running = True
+        self._started = False
+        self._message_queue = asyncio.Queue()
+        logger.info("🔌 TextTransportSimulator initialized")
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        """Process frames in both directions"""
+        # CRITICAL: Call super() first to properly initialize the processor
+        await super().process_frame(frame, direction)
+
+        # Mark as started when we receive StartFrame
+        if isinstance(frame, StartFrame):
+            self._started = True
+            logger.info("✅ TextTransportSimulator received StartFrame - ready to process messages")
+
+            # Start processing queued messages
+            asyncio.create_task(self._process_message_queue())
+
+        # Push frame downstream
+        await self.push_frame(frame, direction)
+
+    async def _process_message_queue(self):
+        """Process messages from the queue after pipeline has started"""
+        while self._running:
+            try:
+                text = await asyncio.wait_for(self._message_queue.get(), timeout=1.0)
+                if text:
+                    logger.info(f"📥 Processing queued message: {text}")
+
+                    # Use TranscriptionFrame (like STT does) instead of TextFrame
+                    # This way the context aggregator knows it's user input
+                    transcription_frame = TranscriptionFrame(text=text, user_id="user", timestamp=0)
+                    await self.push_frame(transcription_frame)
+
+                    # Also notify that user "started speaking" and "stopped speaking"
+                    # This helps with conversation flow timing
+                    await self.push_frame(UserStartedSpeakingFrame())
+                    await self.push_frame(UserStoppedSpeakingFrame())
+
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.error(f"❌ Error processing message from queue: {e}")
+
+    async def receive_text_message(self, text: str):
+        """
+        Receive text message from WebSocket and queue it for processing
+        """
+        logger.info(f"📨 Queueing user message: {text}")
+        await self._message_queue.put(text)
+
+    def stop(self):
+        """Stop the transport"""
+        self._running = False
 
 
 # FastAPI app
 app = FastAPI(
-    title="Info Agent Chat Test",
-    description="Text-only testing interface for Info Agent",
+    title="Info Agent - Text Chat Testing",
+    description="Text-only chat interface for Info Agent rapid testing",
     version="1.0.0"
 )
 
-# CORS
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -145,8 +196,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Active sessions
+# Store for active sessions
 active_sessions: Dict[str, Any] = {}
+
+# Global config for start node
+global_start_node = "greeting"  # Info agent starts with greeting
 
 
 @app.get("/")
@@ -402,156 +456,184 @@ async def get_chat_ui():
 
         <script>
             let ws = null;
-            let isAssistantSpeaking = false;
-            
+            let isConnected = false;
+            let currentAssistantMessage = '';
+
             function connect() {
-                const sessionId = 'test-' + Date.now();
-                ws = new WebSocket(`ws://localhost:8082/ws?session_id=${sessionId}`);
-                
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+                console.log('Connecting to:', wsUrl);
+                ws = new WebSocket(wsUrl);
+
                 ws.onopen = () => {
-                    console.log('Connected to Info Agent');
+                    console.log('WebSocket connected');
+                    isConnected = true;
                     document.getElementById('statusText').textContent = 'Connected';
                     document.getElementById('messageInput').disabled = false;
                     document.getElementById('sendButton').disabled = false;
+                    document.getElementById('messageInput').focus();
                 };
-                
+
                 ws.onmessage = (event) => {
                     const data = JSON.parse(event.data);
-                    
-                    if (data.type === 'assistant_start') {
-                        isAssistantSpeaking = true;
-                        showTypingIndicator();
-                    } 
-                    else if (data.type === 'assistant_delta') {
-                        hideTypingIndicator();
-                        appendToLastAssistantMessage(data.text);
-                    } 
-                    else if (data.type === 'assistant_complete') {
-                        hideTypingIndicator();
-                        isAssistantSpeaking = false;
+                    console.log('Received:', data);
+
+                    if (data.type === 'system_ready') {
+                        addSystemMessage(`✅ Info Agent ready`);
+                    }
+                    else if (data.type === 'assistant_message_chunk') {
+                        // Streaming chunks from LLM - accumulate
+                        currentAssistantMessage += data.text;
+                        updateAssistantMessage(currentAssistantMessage);
+                    }
+                    else if (data.type === 'assistant_message_complete') {
+                        // Complete message - finalize and reset
+                        finalizeAssistantMessage(currentAssistantMessage);
+                        currentAssistantMessage = '';
+                    }
+                    else if (data.type === 'assistant_message') {
+                        // Single complete message (fallback)
+                        currentAssistantMessage = '';
+                        addMessage('assistant', data.text);
                     }
                 };
-                
+
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
                     document.getElementById('statusText').textContent = 'Error';
                 };
-                
+
                 ws.onclose = () => {
                     console.log('Disconnected');
+                    isConnected = false;
                     document.getElementById('statusText').textContent = 'Disconnected';
                     document.getElementById('messageInput').disabled = true;
                     document.getElementById('sendButton').disabled = true;
-                    
-                    // Reconnect after 2 seconds
-                    setTimeout(connect, 2000);
                 };
             }
             
             function sendMessage() {
-                const input = document.getElementById('messageInput');
-                const text = input.value.trim();
-                
-                if (text && ws && ws.readyState === WebSocket.OPEN) {
-                    // Add user message to chat
-                    addMessage('user', text);
-                    
-                    // Send to server
-                    ws.send(JSON.stringify({
-                        type: 'user_message',
-                        text: text
-                    }));
-                    
-                    // Clear input
-                    input.value = '';
-                    
-                    // Show typing indicator
-                    showTypingIndicator();
-                }
+                const text = document.getElementById('messageInput').value.trim();
+
+                if (!text || !isConnected) return;
+
+                addMessage('user', text);
+
+                ws.send(JSON.stringify({
+                    type: 'user_message',
+                    text: text
+                }));
+
+                document.getElementById('messageInput').value = '';
+                showTypingIndicator();
             }
             
             function addMessage(role, text) {
                 const messagesDiv = document.getElementById('messages');
-                
+
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message ${role}`;
-                
+
                 const icon = document.createElement('div');
                 icon.className = 'message-icon';
                 icon.textContent = role === 'user' ? '👤' : '🏥';
-                
+
                 const bubble = document.createElement('div');
                 bubble.className = 'message-bubble';
                 bubble.textContent = text;
-                
+
                 messageDiv.appendChild(icon);
                 messageDiv.appendChild(bubble);
-                
+
+                // Remove typing indicator if exists
+                const typingIndicator = document.querySelector('.typing-indicator');
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
+
                 messagesDiv.appendChild(messageDiv);
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                scrollToBottom();
             }
-            
-            let currentAssistantMessage = null;
-            
-            function appendToLastAssistantMessage(text) {
-                const messagesDiv = document.getElementById('messages');
-                
-                // If we have a current message element, append to it
-                if (currentAssistantMessage && isAssistantSpeaking) {
-                    const bubble = currentAssistantMessage.querySelector('.message-bubble');
-                    bubble.textContent += text;
-                } else {
-                    // Create new assistant message
-                    const messageDiv = document.createElement('div');
-                    messageDiv.className = 'message assistant';
-                    
+
+            function updateAssistantMessage(text) {
+                let messageDiv = document.querySelector('.message.assistant.streaming');
+
+                if (!messageDiv) {
+                    // Remove ALL typing indicators
+                    const typingIndicators = document.querySelectorAll('.message.assistant');
+                    typingIndicators.forEach(indicator => {
+                        if (indicator.querySelector('.typing-indicator')) {
+                            indicator.remove();
+                        }
+                    });
+
+                    // Create new streaming message
+                    messageDiv = document.createElement('div');
+                    messageDiv.className = 'message assistant streaming';
+
                     const icon = document.createElement('div');
                     icon.className = 'message-icon';
                     icon.textContent = '🏥';
-                    
+
                     const bubble = document.createElement('div');
                     bubble.className = 'message-bubble';
-                    bubble.textContent = text;
-                    
+
                     messageDiv.appendChild(icon);
                     messageDiv.appendChild(bubble);
-                    messagesDiv.appendChild(messageDiv);
-                    
-                    currentAssistantMessage = messageDiv;
+
+                    document.getElementById('messages').appendChild(messageDiv);
                 }
-                
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+                const bubble = messageDiv.querySelector('.message-bubble');
+                bubble.textContent = text;
+                scrollToBottom();
             }
-            
+
+            function finalizeAssistantMessage(text) {
+                // Remove ALL streaming classes to ensure clean state
+                const allStreamingMessages = document.querySelectorAll('.message.assistant.streaming');
+                allStreamingMessages.forEach(msg => {
+                    msg.classList.remove('streaming');
+                });
+
+                // Reset the current message buffer
+                currentAssistantMessage = '';
+
+                // Ensure we scroll to bottom
+                scrollToBottom();
+            }
+
             function showTypingIndicator() {
-                let indicator = document.getElementById('typingIndicator');
-                if (!indicator) {
-                    const messagesDiv = document.getElementById('messages');
-                    
-                    const messageDiv = document.createElement('div');
-                    messageDiv.className = 'message assistant';
-                    messageDiv.id = 'typingIndicator';
-                    
-                    const icon = document.createElement('div');
-                    icon.className = 'message-icon';
-                    icon.textContent = '🏥';
-                    
-                    const indicator = document.createElement('div');
-                    indicator.className = 'typing-indicator active';
-                    indicator.innerHTML = '<span></span><span></span><span></span>';
-                    
-                    messageDiv.appendChild(icon);
-                    messageDiv.appendChild(indicator);
-                    messagesDiv.appendChild(messageDiv);
-                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                }
+                const indicator = document.createElement('div');
+                indicator.className = 'message assistant';
+                indicator.innerHTML = `
+                    <div class="message-icon">🏥</div>
+                    <div class="typing-indicator active">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                `;
+                document.getElementById('messages').appendChild(indicator);
+                scrollToBottom();
             }
-            
-            function hideTypingIndicator() {
-                const indicator = document.getElementById('typingIndicator');
-                if (indicator) {
-                    indicator.remove();
-                }
+
+            function addSystemMessage(text) {
+                const messageDiv = document.createElement('div');
+                messageDiv.style.textAlign = 'center';
+                messageDiv.style.color = '#666';
+                messageDiv.style.fontSize = '12px';
+                messageDiv.style.margin = '15px 0';
+                messageDiv.style.fontStyle = 'italic';
+                messageDiv.textContent = text;
+                document.getElementById('messages').appendChild(messageDiv);
+                scrollToBottom();
+            }
+
+            function scrollToBottom() {
+                const container = document.getElementById('messages');
+                container.scrollTop = container.scrollHeight;
             }
             
             // Event listeners
@@ -572,119 +654,235 @@ async def get_chat_ui():
     """)
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return JSONResponse({
+        "status": "healthy",
+        "service": "info-agent-text-chat",
+        "version": "1.0.0",
+        "active_sessions": len(active_sessions),
+        "mode": "text-only",
+        "start_node": global_start_node
+    })
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for chat testing"""
+    """
+    Text-only WebSocket endpoint for chat testing
+    """
+    global global_start_node
+
     await websocket.accept()
-    
-    # Extract session ID
-    query_params = dict(websocket.query_params)
-    session_id = query_params.get("session_id", "test-session")
-    
-    logger.info(f"💬 Chat test session started: {session_id}")
-    
+
+    import uuid
+    session_id = f"info-chat-{uuid.uuid4().hex[:8]}"
+
+    logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info(f"New Info Agent Text Chat Session")
+    logger.info(f"Session ID: {session_id}")
+    logger.info(f"Start Node: {global_start_node}")
+    logger.info(f"Mode: Text-only (No STT/TTS)")
+    logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    # Variables for pipeline
+    runner = None
     task = None
-    
+    text_transport = None
+    text_output = None
+
     try:
-    
+        # Check required API keys (only LLM needed for text mode)
+        if not os.getenv("OPENAI_API_KEY"):
+            raise Exception("OPENAI_API_KEY not found - required for LLM")
+
+        # CREATE SERVICES (NO STT/TTS FOR TEXT MODE!)
+        logger.info("Initializing services for TEXT mode...")
         llm = create_llm_service()
         context_aggregator = create_context_aggregator(llm)
-        
-        # Create text transport simulator
-        transport = TextTransportSimulator(websocket)
-        
-       
+        logger.info("✅ LLM and context aggregator initialized (no STT/TTS)")
+
+        # CREATE TEXT TRANSPORT SIMULATOR
+        text_transport = TextTransportSimulator(websocket)
+        text_output = TextOutputProcessor(websocket)
+
+        # CREATE PIPELINE (TEXT-ONLY - NO STT/TTS!)
         pipeline = Pipeline([
-            transport.input(),           # Text input
-            context_aggregator.user(),   # User context
-            llm,                         # LLM processing
-            transport.output(),          # Text output
-            context_aggregator.assistant()
+            text_transport,              # Text input from WebSocket
+            context_aggregator.user(),   # Add user message to context
+            llm,                         # LLM with flows
+            text_output,                 # Capture and send text output
+            context_aggregator.assistant()  # Add assistant response to context
         ])
-        
-        logger.info("Text-only Pipeline structure:")
-        logger.info("  1. TextInputProcessor (text → transcription)")
+
+        logger.info("Text Chat Pipeline structure:")
+        logger.info("  1. TextTransportSimulator (WebSocket text input)")
         logger.info("  2. Context Aggregator (User)")
         logger.info("  3. OpenAI LLM (with flows)")
-        logger.info("  4. TextOutputProcessor (LLM → browser)")
+        logger.info("  4. TextOutputProcessor (WebSocket text output)")
         logger.info("  5. Context Aggregator (Assistant)")
-        
-        # Create task
+        logger.info("✅ NO STT/TTS - Pure text mode for fast testing!")
+
+        # Create pipeline task
         task = PipelineTask(
             pipeline,
             params=PipelineParams(
                 allow_interruptions=False,  # Not needed for text
-            )
+                enable_transcriptions=False,  # No audio transcription
+            ),
+            cancel_on_idle_timeout=False  # MUST be direct parameter
         )
-        
-        # Create flow manager
-        flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
+
+        # CREATE FLOW MANAGER
+        flow_manager = create_flow_manager(task, llm, context_aggregator, None)
         flow_manager.state["session_id"] = session_id
-        
+
         # Store session
         active_sessions[session_id] = {
             "websocket": websocket,
-            "started_at": asyncio.get_event_loop().time()
+            "connected_at": asyncio.get_event_loop().time(),
+            "mode": "text-only",
+            "flow_manager": flow_manager,
+            "text_transport": text_transport
         }
-        
-        # Initialize flow with greeting
-        await initialize_flow_manager(flow_manager, "greeting")
-        logger.success(f"✅ Flow initialized for chat test: {session_id}")
-        
-        # Handle incoming messages
-        async def handle_messages():
-            try:
-                while True:
-                    data = await websocket.receive_text()
-                    message = json.loads(data)
-                    
-                    if message["type"] == "user_message":
-                        text = message["text"]
-                        logger.info(f"👤 User: {text}")
-                        
-                        # Push text frame into pipeline
-                        await transport.text_input.push_frame(TextFrame(text=text))
-                        
-            except WebSocketDisconnect:
-                logger.info(f"WebSocket disconnected: {session_id}")
-            except Exception as e:
-                logger.error(f"Message handling error: {e}")
-        
-        # Run message handler and pipeline concurrently
+
+        # Initialize flow manager
+        try:
+            await initialize_flow_manager(flow_manager, global_start_node)
+            logger.success(f"✅ Flow initialized with {global_start_node} node")
+
+            # Notify client that system is ready
+            await websocket.send_json({
+                "type": "system_ready",
+                "start_node": global_start_node
+            })
+        except Exception as e:
+            logger.error(f"Error during flow initialization: {e}")
+
+        # START PIPELINE
         runner = PipelineRunner()
-        
-        await asyncio.gather(
-            handle_messages(),
-            runner.run(task)
-        )
-        
+        logger.info(f"🚀 Text Chat Pipeline started for session: {session_id}")
+
+        # Run pipeline in background
+        pipeline_task = asyncio.create_task(runner.run(task))
+
+        # Handle incoming WebSocket messages
+        try:
+            while True:
+                # Receive message from WebSocket
+                message = await websocket.receive_json()
+
+                if message.get("type") == "user_message":
+                    user_text = message.get("text", "").strip()
+                    if user_text:
+                        logger.info(f"💬 User: {user_text}")
+
+                        # Send to pipeline
+                        await text_transport.receive_text_message(user_text)
+
+        except WebSocketDisconnect:
+            logger.info(f"🔌 Text chat client disconnected: {session_id}")
+        except Exception as e:
+            logger.error(f"❌ Error in message loop: {e}")
+        finally:
+            # Cancel pipeline
+            if pipeline_task:
+                pipeline_task.cancel()
+                try:
+                    await pipeline_task
+                except asyncio.CancelledError:
+                    pass
+
     except Exception as e:
-        logger.error(f"❌ Chat test error: {e}")
+        logger.error(f"❌ Error in Text Chat WebSocket handler: {e}")
         import traceback
         traceback.print_exc()
     finally:
         # Cleanup
         if session_id in active_sessions:
             del active_sessions[session_id]
-        
+
+        # Cancel task
         if task:
             await task.cancel()
-        
-        logger.info(f"Chat test session ended: {session_id}")
+
+        logger.info(f"Text Chat Session ended: {session_id}")
+        logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Text-Based Chat Testing for Info Agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python chat_test.py                         # Start with greeting (default)
+  python chat_test.py --start-node greeting   # Explicit greeting start
+  python chat_test.py --port 8082             # Use custom port
+        """
+    )
+
+    parser.add_argument(
+        "--start-node",
+        default="greeting",
+        choices=["greeting"],
+        help="Starting flow node (default: greeting)"
+    )
+
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8082,
+        help="Port to run the server on (default: 8082)"
+    )
+
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host to bind to (default: 0.0.0.0)"
+    )
+
+    return parser.parse_args()
+
+
+def main():
+    """Main function"""
+    global global_start_node
+
+    args = parse_arguments()
+    global_start_node = args.start_node
+
+    # Check required environment variables
+    if not os.getenv("OPENAI_API_KEY"):
+        logger.error("❌ Missing OPENAI_API_KEY environment variable")
+        sys.exit(1)
+
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info("🚀 INFO AGENT - TEXT CHAT TESTING MODE")
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info(f"📍 Start Node: {args.start_node}")
+    logger.info(f"🌐 Server: http://{args.host}:{args.port}")
+    logger.info(f"💬 Mode: Text-only (No STT/TTS)")
+    logger.info(f"⚡ Benefits: Instant testing, lower costs, better debugging")
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info("📖 INSTRUCTIONS:")
+    logger.info(f"   1. Open http://localhost:{args.port} in your browser")
+    logger.info("   2. Start typing to test your Info Agent flows")
+    logger.info("   3. All your existing flows work exactly the same")
+    logger.info("   4. Press Ctrl+C to stop the server")
+    logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    import uvicorn
+    uvicorn.run(app, host=args.host, port=args.port, reload=False)
 
 
 if __name__ == "__main__":
-    import uvicorn
-    
-    port = 8082  # Different port from main.py (8081)
-    
-    logger.info("🚀 Starting Info Agent Chat Test Interface")
-    logger.info(f"📝 Text-only testing - No STT/TTS costs")
-    logger.info(f"🌐 Open http://localhost:{port} in your browser")
-    
-    uvicorn.run(
-        "info_agent.chat_test:app",
-        host="0.0.0.0",
-        port=port,
-        reload=False
-    )
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("👋 Text chat testing server stopped by user")
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
+        sys.exit(1)
