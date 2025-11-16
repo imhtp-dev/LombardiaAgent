@@ -184,7 +184,7 @@ services:
       - "8082:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://98.66.139.255:8081/api
+      - NEXT_PUBLIC_API_URL=http://98.66.139.255:8000/api
     restart: unless-stopped
     deploy:
       resources:
