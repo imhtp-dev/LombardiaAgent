@@ -6,7 +6,7 @@ set -e  # Exit on error
 
 # Configuration
 REGISTRY="rudyimhtpdev"  # Your Docker Hub username
-IMAGE_NAME="voicebooking_piemo1"
+IMAGE_NAME="lombardia_region"
 FULL_IMAGE_NAME="${REGISTRY}/${IMAGE_NAME}"
 
 # Generate unique version tag
@@ -14,7 +14,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 VERSION_TAG="v${TIMESTAMP}-${GIT_HASH}"
 
-echo "🚀 Healthcare Agent Docker Deployment"
+echo "🚀 Lombardia Healthcare Agent Docker Deployment"
 echo "=================================="
 echo "📋 Image: ${FULL_IMAGE_NAME}"
 echo "🏷️  Version: ${VERSION_TAG}"

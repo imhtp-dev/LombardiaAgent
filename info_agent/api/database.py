@@ -21,31 +21,39 @@ class Database:
             database_url = os.getenv("DATABASE_URL")
             if not database_url:
                 raise ValueError("DATABASE_URL environment variable not set")
-            
+
             # Supabase requires SSL connections
             import ssl
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
-            
+
             self.pool = await asyncpg.create_pool(
                 dsn=database_url,
-                min_size=5,
-                max_size=20,
+                min_size=10,          # Increased from 5 to handle concurrent calls
+                max_size=50,          # Increased from 20 to support 30-40 concurrent calls
                 command_timeout=60,
                 ssl=ssl_context,
                 statement_cache_size=0  # Required for Supabase connection pooler
             )
-            
+
             # Test connection
             async with self.pool.acquire() as conn:
                 await conn.fetchval("SELECT 1")
-            
+
             logger.info("✅ PostgreSQL connection pool created successfully (SSL enabled)")
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to connect to PostgreSQL: {e}")
-            raise
+            logger.warning("⚠️ Database pool will remain None (backup files will be used)")
+            # Close pool if it was created but connection test failed
+            if self.pool:
+                try:
+                    await self.pool.close()
+                except:
+                    pass
+            # Don't raise - allow agent to continue without database
+            self.pool = None
     
     async def close(self):
         """Close database connection pool"""
@@ -57,10 +65,12 @@ class Database:
         """
         Execute a query that modifies data (INSERT, UPDATE, DELETE)
         Returns the status string (e.g., "INSERT 0 1")
+        Raises RuntimeError if pool is not initialized (for backup handling)
         """
         if not self.pool:
-            raise RuntimeError("Database pool not initialized. Call connect() first.")
-        
+            # Raise exception so caller can handle it (e.g., create backup file)
+            raise RuntimeError("Database pool not initialized (connection unavailable)")
+
         async with self.pool.acquire() as conn:
             try:
                 result = await conn.execute(query, *args)

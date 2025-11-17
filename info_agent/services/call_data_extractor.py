@@ -2,19 +2,38 @@
 Call Data Extractor Service
 Extracts call data and saves to tb_stat table in Supabase
 Based on PDF documentation
+Enhanced with LLM analysis and backup mechanism
 """
 
 import uuid
+import os
+import json
+import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from pathlib import Path
 from loguru import logger
+from openai import AsyncOpenAI
 
 from info_agent.api.database import db
+
+# OpenAI client - will be initialized lazily when needed
+openai_client = None
+
+def get_openai_client():
+    """Get or create OpenAI client (lazy initialization)"""
+    global openai_client
+    if openai_client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable not set")
+        openai_client = AsyncOpenAI(api_key=api_key)
+    return openai_client
 
 
 class CallDataExtractor:
     """Extract and store call data to tb_stat table"""
-    
+
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.call_id = str(uuid.uuid4())
@@ -22,8 +41,11 @@ class CallDataExtractor:
         self.ended_at = None
         self.transcript = []
         self.llm_token_count = 0
-        self.assistant_id = "pipecat-piemonte-001"  # Default Piedmont assistant
-        
+        self.functions_called = []  # ✅ NEW - Track function calls
+        self.assistant_id = os.getenv("INFO_AGENT_ASSISTANT_ID", "pipecat-info-lombardy-001")  # ✅ From env
+        self.caller_phone = None
+        self.interaction_id = None
+
         logger.info(f"📊 Call data extractor initialized for session: {session_id}")
         logger.info(f"📞 Call ID: {self.call_id}")
     
@@ -46,10 +68,22 @@ class CallDataExtractor:
             "content": content,
             "timestamp": datetime.now().isoformat()
         })
-    
+        logger.debug(f"📝 Transcript entry added: {role} - {content[:50]}...")
+
+    def add_function_call(self, function_name: str, parameters: dict = None, result: dict = None):
+        """Track function calls for analytics"""
+        self.functions_called.append({
+            "function_name": function_name,
+            "parameters": parameters or {},
+            "result": result or {},
+            "timestamp": datetime.now().isoformat()
+        })
+        logger.info(f"🔧 Function called: {function_name}")
+
     def increment_tokens(self, tokens: int):
         """Track LLM token usage"""
         self.llm_token_count += tokens
+        logger.debug(f"🔢 Token count: +{tokens} (total: {self.llm_token_count})")
     
     def _calculate_duration(self) -> Optional[float]:
         """Calculate call duration in seconds"""
@@ -207,19 +241,180 @@ class CallDataExtractor:
         
         return "\n".join(lines)
     
+    async def _analyze_call_with_llm(self, transcript_text: str, flow_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Use LLM to analyze call and extract structured data
+
+        Returns:
+            Dict with: action, sentiment, service (1-5), motivazione, esito_chiamata, patient_intent, summary
+        """
+        try:
+            logger.info("🤖 Analyzing call with LLM...")
+
+            # Build prompt with user's exact requirements
+            prompt = (
+                "You are an expert analyst of telephone conversations in the healthcare sector.\n"
+                "You must generate a summary of a call of up to 250 characters and classify it:\n"
+                "1. ACTION: completed (info provided successfully), question (unanswered questions), "
+                "transfer (transferred to operator), book (wants to book appointment)\n"
+                "2. SENTIMENT: positive, neutral, negative, N/A\n"
+                "3. SERVICE: classify the type of question with these IVR codes:\n"
+                " - 1: INFORMATION on blood sampling times or laboratory services\n"
+                " - 2: INFORMATION on Visits, Ultrasounds, or Outpatient Services\n"
+                " - 3: INFORMATION on MRIs, X-rays, CT scans, DEXA scans, and Mammograms\n"
+                " - 4: INFORMATION on sports medical visits\n"
+                " - 5: OTHER INFORMATION\n"
+                "4. ESITO_CHIAMATA: COMPLETATA (call ended naturally), TRASFERITA (transferred to human), "
+                "NON COMPLETATA (call ended prematurely)\n"
+                "5. MOTIVAZIONE: Info fornite, Argomento sconosciuto, Interrotta dal paziente, "
+                "Prenotazione, Mancata comprensione, Richiesta paziente\n"
+                "6. PATIENT_INTENT: Brief description of what patient wanted (max 100 chars)\n\n"
+                "Reply ONLY with a JSON in the format:\n"
+                '{"summary": "...", "action": "completed/question/transfer/book", '
+                '"sentiment": "positive/neutral/negative", "service": "1/2/3/4/5", '
+                '"esito_chiamata": "COMPLETATA/TRASFERITA/NON COMPLETATA", '
+                '"motivazione": "...", "patient_intent": "..."}\n\n'
+                "DO NOT add explanations or additional text.\n\n"
+                f"TRANSCRIPT:\n{transcript_text}"
+            )
+
+            # Call OpenAI with same model as conversation (lazy initialization)
+            client = get_openai_client()
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",  # Same as conversation
+                messages=[
+                    {"role": "system", "content": "You are a call analysis expert. Reply only with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500
+            )
+
+            # Parse JSON response
+            analysis_text = response.choices[0].message.content.strip()
+
+            # Remove markdown code blocks if present
+            if analysis_text.startswith("```json"):
+                analysis_text = analysis_text.replace("```json", "").replace("```", "").strip()
+            elif analysis_text.startswith("```"):
+                analysis_text = analysis_text.replace("```", "").strip()
+
+            analysis = json.loads(analysis_text)
+
+            logger.success(f"✅ LLM Analysis completed:")
+            logger.info(f"   Action: {analysis.get('action')}")
+            logger.info(f"   Sentiment: {analysis.get('sentiment')}")
+            logger.info(f"   Service: {analysis.get('service')}")
+            logger.info(f"   Esito: {analysis.get('esito_chiamata')}")
+            logger.info(f"   Motivazione: {analysis.get('motivazione')}")
+
+            return analysis
+
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Failed to parse LLM JSON response: {e}")
+            logger.error(f"   Raw response: {analysis_text if 'analysis_text' in locals() else 'N/A'}")
+            # Return fallback values
+            return self._get_fallback_analysis(flow_state)
+
+        except Exception as e:
+            logger.error(f"❌ LLM analysis failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return fallback values
+            return self._get_fallback_analysis(flow_state)
+
+    def _get_fallback_analysis(self, flow_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fallback analysis when LLM fails
+        Uses rule-based logic
+        """
+        logger.warning("⚠️ Using fallback rule-based analysis")
+
+        action = self._determine_action(flow_state)
+        sentiment = self._determine_sentiment(flow_state, "")
+        esito_chiamata = self._determine_esito_chiamata(flow_state)
+        motivazione = self._determine_motivazione(flow_state, action)
+        patient_intent = self._extract_patient_intent(flow_state)
+
+        # Determine service code based on functions called
+        service = "5"  # Default: OTHER
+        functions_called = flow_state.get("functions_called", [])
+        for func in functions_called:
+            if "clinic" in func.lower() or "blood" in func.lower():
+                service = "1"
+                break
+            elif "price" in func.lower() or "visit" in func.lower():
+                service = "4"  # Sports medical visits
+                break
+            elif "exam" in func.lower():
+                service = "2"
+                break
+
+        summary = f"Chiamata {esito_chiamata.lower()}. Paziente ha richiesto: {patient_intent or 'informazioni'}."
+
+        return {
+            "summary": summary[:250],  # Limit to 250 chars
+            "action": action,
+            "sentiment": sentiment,
+            "service": service,
+            "esito_chiamata": esito_chiamata,
+            "motivazione": motivazione,
+            "patient_intent": patient_intent or "Richiesta informazioni"
+        }
+
+    def _save_to_backup_file(self, data: Dict[str, Any]) -> bool:
+        """
+        Save call data to backup JSON file when database save fails
+
+        Args:
+            data: Call data to backup
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Create backup directory if it doesn't exist
+            backup_dir = Path("info_agent/call_logs/failed_saves")
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create backup file
+            backup_file = backup_dir / f"{self.call_id}.json"
+
+            # Add metadata
+            backup_data = {
+                "call_id": self.call_id,
+                "session_id": self.session_id,
+                "saved_at": datetime.now().isoformat(),
+                "retry_count": 0,
+                "data": data
+            }
+
+            # Write to file
+            with open(backup_file, "w", encoding="utf-8") as f:
+                json.dump(backup_data, f, indent=2, ensure_ascii=False)
+
+            logger.success(f"💾 Backup file created: {backup_file}")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to create backup file: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def _generate_summary(self, flow_state: Dict[str, Any], patient_intent: str) -> str:
         """Generate AI summary of the call"""
         # For now, create a structured summary
         # In future, could use LLM to generate more natural summary
-        
+
         action = self._determine_action(flow_state)
         esito = self._determine_esito_chiamata(flow_state)
-        
+
         summary_parts = [
             f"Chiamata {esito.lower()}.",
             f"Paziente ha richiesto: {patient_intent}.",
         ]
-        
+
         if action == "completed":
             summary_parts.append("Informazioni fornite con successo dall'assistente vocale.")
         elif action == "transfer":
@@ -227,71 +422,109 @@ class CallDataExtractor:
             summary_parts.append(f"Chiamata trasferita a operatore umano per: {transfer_reason}.")
         elif action == "question":
             summary_parts.append("Argomento sconosciuto, trasferita a operatore per assistenza.")
-        
+
         functions_called = flow_state.get("functions_called", [])
         if functions_called:
             summary_parts.append(f"Funzioni utilizzate: {', '.join(functions_called)}.")
-        
+
         return " ".join(summary_parts)
     
     async def save_to_database(self, flow_state: Dict[str, Any]) -> bool:
         """
-        Extract all data and save to tb_stat table
-        
+        Extract all data and UPDATE tb_stat table row (bridge already created it)
+        Uses LLM analysis for intelligent field extraction
+
         Args:
             flow_state: Flow manager state containing call information
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
             logger.info(f"💾 Extracting call data for session: {self.session_id}")
-            
+
             # Calculate basic metrics
             duration_seconds = self._calculate_duration()
             cost = self._calculate_cost(duration_seconds)
-            
-            # Determine call attributes
-            action = self._determine_action(flow_state)
-            esito_chiamata = self._determine_esito_chiamata(flow_state)
-            patient_intent = self._extract_patient_intent(flow_state)
-            sentiment = self._determine_sentiment(flow_state, "")
-            motivazione = self._determine_motivazione(flow_state, action)
-            
-            # Generate transcript and summary
+
+            # Generate transcript
             transcript_text = self._generate_transcript_text()
-            summary = self._generate_summary(flow_state, patient_intent or "N/A")
-            
-            # Re-calculate sentiment with summary
-            sentiment = self._determine_sentiment(flow_state, summary)
-            
+
             # Get phone number
             phone_number = flow_state.get("caller_phone") or self.caller_phone
-            
+
+            # Use LLM to analyze call and extract structured data
+            if transcript_text:
+                analysis = await self._analyze_call_with_llm(transcript_text, flow_state)
+            else:
+                logger.warning("⚠️ No transcript available, using fallback analysis")
+                analysis = self._get_fallback_analysis(flow_state)
+
+            # Extract fields from LLM analysis
+            action = analysis.get("action", "completed")
+            sentiment = analysis.get("sentiment", "neutral")
+            service = str(analysis.get("service", "5"))  # IVR code 1-5
+            esito_chiamata = analysis.get("esito_chiamata", "COMPLETATA")
+            motivazione = analysis.get("motivazione", "Info fornite")
+            patient_intent = analysis.get("patient_intent", "Richiesta informazioni")
+            summary = analysis.get("summary", "")[:250]  # Limit to 250 chars
+
             logger.info(f"📊 Call Data Summary:")
             logger.info(f"   Call ID: {self.call_id}")
             logger.info(f"   Duration: {duration_seconds:.2f}s" if duration_seconds else "   Duration: N/A")
             logger.info(f"   Cost: ${cost:.4f}" if cost else "   Cost: N/A")
             logger.info(f"   Action: {action}")
             logger.info(f"   Sentiment: {sentiment}")
+            logger.info(f"   Service: {service}")
             logger.info(f"   Esito: {esito_chiamata}")
             logger.info(f"   Motivazione: {motivazione}")
             logger.info(f"   Phone: {phone_number or 'N/A'}")
             logger.info(f"   LLM Tokens: {self.llm_token_count}")
-            
-            # Insert into database
+
+            # Prepare data for database/backup
+            call_data = {
+                "call_id": self.call_id,
+                "phone_number": phone_number,
+                "assistant_id": self.assistant_id,
+                "started_at": self.started_at.isoformat() if self.started_at else None,
+                "ended_at": self.ended_at.isoformat() if self.ended_at else None,
+                "duration_seconds": duration_seconds,
+                "action": action,
+                "sentiment": sentiment,
+                "esito_chiamata": esito_chiamata,
+                "motivazione": motivazione,
+                "patient_intent": patient_intent,
+                "transcript": transcript_text,
+                "summary": summary,
+                "cost": cost,
+                "llm_token": self.llm_token_count,
+                "service": service,
+                "interaction_id": self.interaction_id
+            }
+
+            # UPDATE database row (bridge already created it with call_id)
             query = """
-            INSERT INTO tb_stat (
-                call_id, phone_number, assistant_id, started_at, ended_at,
-                duration_seconds, action, sentiment, esito_chiamata, motivazione,
-                patient_intent, transcript, summary, cost, llm_token,
-                service, interaction_id
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
-            )
+            UPDATE tb_stat SET
+                phone_number = $2,
+                assistant_id = $3,
+                started_at = $4,
+                ended_at = $5,
+                duration_seconds = $6,
+                action = $7,
+                sentiment = $8,
+                esito_chiamata = $9,
+                motivazione = $10,
+                patient_intent = $11,
+                transcript = $12,
+                summary = $13,
+                cost = $14,
+                llm_token = $15,
+                service = $16,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE call_id = $1
             """
-            
-            await db.execute(
+
+            result = await db.execute(
                 query,
                 self.call_id,
                 phone_number,
@@ -308,19 +541,33 @@ class CallDataExtractor:
                 summary,
                 cost,
                 self.llm_token_count,
-                "pipecat",
-                self.interaction_id
+                service
             )
-            
-            logger.success(f"✅ Call data saved to tb_stat table")
+
+            logger.success(f"✅ Call data updated in tb_stat table")
             logger.info(f"   Database Call ID: {self.call_id}")
-            
+            logger.info(f"   Rows updated: {result}")
+
             return True
-            
+
         except Exception as e:
             logger.error(f"❌ Error saving call data to database: {e}")
             import traceback
             traceback.print_exc()
+
+            # Create backup file for failed save
+            logger.warning("⚠️ Creating backup file for retry...")
+            backup_success = self._save_to_backup_file(call_data if 'call_data' in locals() else {
+                "call_id": self.call_id,
+                "session_id": self.session_id,
+                "error": str(e)
+            })
+
+            if backup_success:
+                logger.info("💾 Backup file created successfully for retry service")
+            else:
+                logger.error("❌ Failed to create backup file - data may be lost!")
+
             return False
 
 

@@ -9,6 +9,7 @@ import sys
 import asyncio
 import logging
 from typing import Dict, Any
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -38,6 +39,7 @@ from pipecat.transports.websocket.fastapi import (
 )
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
+from pipecat.processors.transcript_processor import TranscriptProcessor  # ✅ NEW
 
 
 from info_agent.flows.manager import create_flow_manager, initialize_flow_manager
@@ -54,23 +56,21 @@ from pipeline.components import (
 )
 from config.settings import settings as booking_settings
 
-load_dotenv(override=True)
-
 
 
 class RawPCMSerializer(FrameSerializer):
     """Simple serializer for PCM audio (16kHz, mono)"""
-    
+
     @property
     def type(self):
         return FrameSerializerType.BINARY
-    
+
     async def serialize(self, frame: Frame) -> bytes:
         """Serialize outgoing audio frames"""
         if isinstance(frame, OutputAudioRawFrame):
             return frame.audio
         return b''
-    
+
     async def deserialize(self, data) -> Frame:
         """Deserialize incoming PCM audio"""
         if isinstance(data, bytes) and len(data) > 0:
@@ -82,11 +82,75 @@ class RawPCMSerializer(FrameSerializer):
         return None
 
 
+# Import dependencies before app creation
+from info_agent.api.database import db
+from info_agent.api import auth, users, qa, dashboard, chat
+from info_agent.api.qa import initialize_ai_services
+from info_agent.services.call_retry_service import start_retry_service, stop_retry_service
 
+
+# Lifespan context manager - Modern FastAPI approach (replaces @app.on_event)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown operations.
+    This replaces the deprecated @app.on_event decorators.
+    """
+    # Startup operations
+    logger.info("🚀 Starting Info Agent + Dashboard APIs...")
+
+    # Try to initialize database (optional for voice agent)
+    try:
+        await db.connect()
+        logger.info("✅ Database connection pool initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Database connection failed (dashboard APIs will not work): {e}")
+        logger.info("✅ Voice agent will still function normally")
+
+    # Try to initialize Pinecone and OpenAI for Q&A management (optional)
+    try:
+        initialize_ai_services()
+        logger.info("✅ AI services (Pinecone + OpenAI) initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ AI services initialization failed (Q&A management APIs will not work): {e}")
+        logger.info("✅ Voice agent will still function normally")
+
+    # Start call retry service for failed database saves
+    try:
+        await start_retry_service()
+        logger.info("✅ Call Retry Service started (checks every 5 minutes)")
+    except Exception as e:
+        logger.warning(f"⚠️ Call Retry Service failed to start: {e}")
+        logger.info("✅ Voice agent will still function (manual retry needed for failures)")
+
+    logger.success("✅ Info Agent startup complete (voice agent ready)")
+
+    # Yield control to the application (runs during app lifetime)
+    yield
+
+    # Shutdown operations
+    logger.info("🛑 Shutting down Info Agent + Dashboard APIs...")
+
+    # Stop call retry service
+    try:
+        await stop_retry_service()
+        logger.info("✅ Call Retry Service stopped")
+    except Exception as e:
+        logger.error(f"❌ Retry service shutdown error: {e}")
+
+    try:
+        await db.close()
+        logger.info("✅ Database connection pool closed")
+    except Exception as e:
+        logger.error(f"❌ Shutdown cleanup error: {e}")
+
+
+# Create FastAPI app with lifespan
 app = FastAPI(
     title=info_settings.server_config["title"],
     description="Pipecat-based medical information agent for Cerba Healthcare + Dashboard APIs",
-    version=info_settings.server_config["version"]
+    version=info_settings.server_config["version"],
+    lifespan=lifespan  # ✅ Modern approach - replaces @app.on_event
 )
 
 app.add_middleware(
@@ -97,53 +161,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import API routers
-from info_agent.api.database import db
-from info_agent.api import auth, users, qa, dashboard, chat
-
-# Import Q&A AI services initialization
-from info_agent.api.qa import initialize_ai_services
-
-
-# Startup event - Initialize database and AI services
-@app.on_event("startup")
-async def startup():
-    """Initialize database pool and AI services on startup"""
-    logger.info("🚀 Starting Info Agent + Dashboard APIs...")
-    
-    # Try to initialize database (optional for voice agent)
-    try:
-        await db.connect()
-        logger.info("✅ Database connection pool initialized")
-    except Exception as e:
-        logger.warning(f"⚠️ Database connection failed (dashboard APIs will not work): {e}")
-        logger.info("✅ Voice agent will still function normally")
-    
-    # Try to initialize Pinecone and OpenAI for Q&A management (optional)
-    try:
-        initialize_ai_services()
-        logger.info("✅ AI services (Pinecone + OpenAI) initialized")
-    except Exception as e:
-        logger.warning(f"⚠️ AI services initialization failed (Q&A management APIs will not work): {e}")
-        logger.info("✅ Voice agent will still function normally")
-    
-    logger.success("✅ Info Agent startup complete (voice agent ready)")
-
-
-# Shutdown event - Cleanup database
-@app.on_event("shutdown")
-async def shutdown():
-    """Close database pool on shutdown"""
-    logger.info("🛑 Shutting down Info Agent + Dashboard APIs...")
-    
-    try:
-        await db.close()
-        logger.info("✅ Database connection pool closed")
-    except Exception as e:
-        logger.error(f"❌ Shutdown cleanup error: {e}")
-
-
-# Include API routers
+# Register API routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(qa.router, prefix="/api/qa", tags=["Q&A Management"])
@@ -262,24 +280,46 @@ async def websocket_endpoint(websocket: WebSocket):
     Handles medical information queries via voice
     """
     await websocket.accept()
-    
-    # Extract session parameters
+
+    # ✅ Ensure database pool is initialized (for direct WebSocket connections)
+    logger.debug(f"🔍 Checking database pool status: pool={'initialized' if db.pool else 'None'}")
+    if not db.pool:
+        logger.warning("⚠️ Database pool not initialized, initializing now...")
+        try:
+            await db.connect()
+            if db.pool:
+                logger.success("✅ Database connection pool initialized")
+            else:
+                logger.warning("⚠️ Database connection failed (pool is still None)")
+        except Exception as e:
+            logger.warning(f"⚠️ Database connection failed: {e}")
+            logger.info("✅ Voice agent will continue (backup files will be created)")
+    else:
+        logger.debug("✅ Database pool already initialized")
+
+    # ✅ Extract ALL session parameters (from TalkDesk bridge)
     query_params = dict(websocket.query_params)
     import uuid
     session_id = query_params.get("session_id", f"info-{uuid.uuid4().hex[:8]}")
     start_node = query_params.get("start_node", "greeting")
     caller_phone = query_params.get("caller_phone", "")
-    
+    interaction_id = query_params.get("interaction_id", "")  # ✅ NEW
+    stream_sid = query_params.get("stream_sid", "")          # ✅ NEW
+    business_status = query_params.get("business_status", "open")  # ✅ NEW
+
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info("🎯 Info Agent - New Connection")
     logger.info(f"Session ID: {session_id}")
     logger.info(f"Start Node: {start_node}")
     logger.info(f"Caller Phone: {caller_phone or 'Not provided'}")
+    logger.info(f"Interaction ID: {interaction_id or 'Not provided'}")  # ✅ NEW
+    logger.info(f"Stream SID: {stream_sid or 'Not provided'}")          # ✅ NEW
+    logger.info(f"Business Status: {business_status}")                  # ✅ NEW
     logger.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    
+
     runner = None
     task = None
-    
+
     try:
         # Validate API keys
         required_keys = [
@@ -322,34 +362,61 @@ async def websocket_endpoint(websocket: WebSocket):
         llm = create_llm_service()
         context_aggregator = create_context_aggregator(llm)
         logger.success("✅ All AI services initialized")
-        
-        # Create pipeline
+
+        # ✅ Create TranscriptProcessor for real-time transcript capture
+        transcript_processor = TranscriptProcessor()
+        logger.info("✅ TranscriptProcessor created")
+
+        # Initialize call data extractor BEFORE pipeline
+        call_extractor = get_call_extractor(session_id)
+        call_extractor.start_call(
+            caller_phone=caller_phone,
+            interaction_id=interaction_id
+        )
+        # Store call_id from session_id (bridge UUID)
+        call_extractor.call_id = session_id
+
+        # ✅ Setup transcript event handler
+        @transcript_processor.event_handler("on_transcript_update")
+        async def on_transcript_update(processor, frame):
+            """Capture transcript in real-time"""
+            for message in frame.messages:
+                logger.debug(f"📝 {message.role}: {message.content[:50]}...")
+                call_extractor.add_transcript_entry(message.role, message.content)
+
+        # ✅ Create pipeline WITH TranscriptProcessor
         pipeline = Pipeline([
             transport.input(),
             stt,
+            transcript_processor.user(),        # ✅ NEW - Capture user messages
             context_aggregator.user(),
             llm,
             tts,
             transport.output(),
+            transcript_processor.assistant(),   # ✅ NEW - Capture assistant messages
             context_aggregator.assistant()
         ])
-        
+
         logger.info("Info Agent Pipeline structure:")
         logger.info("  1. Input (PCM audio)")
         logger.info("  2. Deepgram STT (Italian)")
-        logger.info("  3. Context Aggregator (User)")
-        logger.info("  4. OpenAI LLM (with flows)")
-        logger.info("  5. ElevenLabs TTS (Italian)")
-        logger.info("  6. Output (PCM audio)")
-        logger.info("  7. Context Aggregator (Assistant)")
-        
-        # Create pipeline task
+        logger.info("  3. TranscriptProcessor.user() - Capture user messages")  # ✅ NEW
+        logger.info("  4. Context Aggregator (User)")
+        logger.info("  5. OpenAI LLM (with flows)")
+        logger.info("  6. ElevenLabs TTS (Italian)")
+        logger.info("  7. Output (PCM audio)")
+        logger.info("  8. TranscriptProcessor.assistant() - Capture assistant messages")  # ✅ NEW
+        logger.info("  9. Context Aggregator (Assistant)")
+
+        # ✅ Create pipeline task WITH METRICS ENABLED
         task = PipelineTask(
             pipeline,
             params=PipelineParams(
                 allow_interruptions=True,
                 audio_in_sample_rate=16000,
                 audio_out_sample_rate=16000,
+                enable_metrics=True,           # ✅ NEW - Enable metrics
+                enable_usage_metrics=True      # ✅ NEW - Track tokens
             )
         )
         
@@ -357,19 +424,19 @@ async def websocket_endpoint(websocket: WebSocket):
         
         # Create flow manager
         flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
-        
-        # Store caller phone in flow state if provided
-        if caller_phone:
-            flow_manager.state["caller_phone"] = caller_phone
-            logger.info(f"📞 Caller phone stored: {caller_phone}")
-        
-        # Store session ID
-        flow_manager.state["session_id"] = session_id
-        
-        # Initialize call data extractor
-        call_extractor = get_call_extractor(session_id)
-        interaction_id = query_params.get("interaction_id")
-        call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+
+        # ✅ Store ALL parameters in flow state
+        flow_manager.state.update({
+            "session_id": session_id,
+            "caller_phone": caller_phone,
+            "interaction_id": interaction_id,
+            "stream_sid": stream_sid,
+            "business_status": business_status
+        })
+
+        logger.info(f"📞 Caller phone stored: {caller_phone or 'N/A'}")
+        logger.info(f"📋 Interaction ID stored: {interaction_id or 'N/A'}")
+        logger.info(f"📡 Stream SID stored: {stream_sid or 'N/A'}")
         
         # Event handlers
         @transport.event_handler("on_client_connected")
@@ -401,44 +468,48 @@ async def websocket_endpoint(websocket: WebSocket):
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport_obj, ws):
             logger.info(f"🔌 Client disconnected: {session_id}")
-            
-            # End call timing
+
+            # ✅ End call timing
             call_extractor.end_call()
-            
-            # Extract transcript from context aggregator
+
+            # ✅ Transcript is already captured by TranscriptProcessor (no need to extract from context_aggregator)
+            logger.info(f"📝 Transcript captured: {len(call_extractor.transcript)} messages")
+
+            # ✅ Populate flow state with functions called
+            flow_manager.state["functions_called"] = [
+                f["function_name"] for f in call_extractor.functions_called
+            ]
+
+            # ✅ Save call data to database (UPDATE existing row)
             try:
-                messages = context_aggregator.get_messages()
-                for msg in messages:
-                    role = msg.get("role", "")
-                    content = msg.get("content", "")
-                    if role and content:
-                        call_extractor.add_transcript_entry(role, content)
-            except Exception as e:
-                logger.warning(f"⚠️ Could not extract transcript: {e}")
-            
-            # Save call data to database
-            try:
+                logger.info(f"📊 Saving call data to database...")
                 success = await call_extractor.save_to_database(flow_manager.state)
                 if success:
-                    logger.success("✅ Call data saved to Supabase")
+                    logger.success("✅ Call data saved to Supabase tb_stat")
+                    logger.info(f"   Call ID: {call_extractor.call_id}")
+                    logger.info(f"   Duration: {call_extractor._calculate_duration()}s")
+                    logger.info(f"   Transcript: {len(call_extractor.transcript)} messages")
+                    logger.info(f"   Functions: {len(call_extractor.functions_called)} calls")
                 else:
-                    logger.warning("⚠️ Call data extraction failed (check logs)")
+                    logger.warning("⚠️ Call data save failed (saved to backup file)")
             except Exception as e:
                 logger.error(f"❌ Error saving call data: {e}")
-            
-            # Cleanup call extractor
+                import traceback
+                traceback.print_exc()
+
+            # ✅ Cleanup call extractor
             cleanup_call_extractor(session_id)
-            
+
             # Check if transfer was requested
             if flow_manager.state.get("transfer_requested"):
                 transfer_reason = flow_manager.state.get("transfer_reason", "unknown")
                 logger.info(f"📞 Transfer was requested: {transfer_reason}")
                 # TODO: Call escalation endpoint here (future integration)
-            
+
             # Cleanup
             if session_id in active_sessions:
                 del active_sessions[session_id]
-            
+
             await task.cancel()
         
         @transport.event_handler("on_session_timeout")

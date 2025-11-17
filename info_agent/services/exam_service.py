@@ -3,6 +3,7 @@ Exam Service
 Provides exam requirements for sports medicine visits by visit type or sport
 """
 
+import json
 import asyncio
 import aiohttp
 from typing import Optional, List
@@ -70,11 +71,22 @@ class ExamService:
                 )
             
             logger.info(f"🔬 Getting exams for visit type: {visit_type}")
-            
+
+            # VAPI-compatible request format
             request_data = {
-                "visit_type": visit_type
+                "message": {
+                    "toolCallList": [
+                        {
+                            "toolCallId": "pipecat_exam_by_visit",
+                            "function": {
+                                "name": "get_list_exam_by_visit",
+                                "arguments": json.dumps({"visit_type": visit_type})
+                            }
+                        }
+                    ]
+                }
             }
-            
+
             async with self.session.post(
                 self.exam_by_visit_url,
                 json=request_data,
@@ -83,12 +95,40 @@ class ExamService:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                
-                exams = data.get("exams", [])
-                
+
+                # Debug: Log full API response
+                logger.debug(f"🔍 API Response: {data}")
+
+                # API returns {'results': [{'toolCallId': '...', 'result': {...}}]}
+                results = data.get("results", [])
+
+                if not results or len(results) == 0:
+                    logger.warning("⚠️ API returned empty results")
+                    return ExamResult(
+                        exams=[],
+                        visit_type=visit_type,
+                        success=False,
+                        error="No results found"
+                    )
+
+                # Extract the exam data from results[0]["result"]
+                # Note: result is a dict object (not JSON string)
+                exam_data = results[0].get("result", {})
+
+                if not exam_data:
+                    logger.warning("⚠️ API returned empty exam data")
+                    return ExamResult(
+                        exams=[],
+                        visit_type=visit_type,
+                        success=False,
+                        error="Empty exam data"
+                    )
+
+                exams = exam_data.get("exams", [])
+
                 logger.success(f"✅ Found {len(exams)} exams for visit type {visit_type}")
                 logger.debug(f"🔬 Exams: {', '.join(exams)}")
-                
+
                 return ExamResult(
                     exams=exams,
                     visit_type=visit_type,
@@ -139,11 +179,22 @@ class ExamService:
             await self.initialize()
             
             logger.info(f"🔬 Getting exams for sport: {sport}")
-            
+
+            # VAPI-compatible request format
             request_data = {
-                "sport": sport
+                "message": {
+                    "toolCallList": [
+                        {
+                            "toolCallId": "pipecat_exam_by_sport",
+                            "function": {
+                                "name": "get_list_exam_by_sport",
+                                "arguments": json.dumps({"sport": sport})
+                            }
+                        }
+                    ]
+                }
             }
-            
+
             async with self.session.post(
                 self.exam_by_sport_url,
                 json=request_data,
@@ -152,12 +203,40 @@ class ExamService:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                
-                exams = data.get("exams", [])
-                
+
+                # Debug: Log full API response
+                logger.debug(f"🔍 API Response: {data}")
+
+                # API returns {'results': [{'toolCallId': '...', 'result': {...}}]}
+                results = data.get("results", [])
+
+                if not results or len(results) == 0:
+                    logger.warning("⚠️ API returned empty results")
+                    return ExamResult(
+                        exams=[],
+                        sport=sport,
+                        success=False,
+                        error="No results found"
+                    )
+
+                # Extract the exam data from results[0]["result"]
+                # Note: result is a dict object (not JSON string)
+                exam_data = results[0].get("result", {})
+
+                if not exam_data:
+                    logger.warning("⚠️ API returned empty exam data")
+                    return ExamResult(
+                        exams=[],
+                        sport=sport,
+                        success=False,
+                        error="Empty exam data"
+                    )
+
+                exams = exam_data.get("exams", [])
+
                 logger.success(f"✅ Found {len(exams)} exams for sport '{sport}'")
                 logger.debug(f"🔬 Exams: {', '.join(exams)}")
-                
+
                 return ExamResult(
                     exams=exams,
                     sport=sport,

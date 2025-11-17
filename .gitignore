@@ -103,6 +103,9 @@ BackUp.md
 # Bridge connection folder (hosted on Azure)
 talkdeskbridge/
 
+# Frontend (moved to separate repository)
+info_frontend/
+
 # Recordings and temporary files
 recordings/
 *.wav

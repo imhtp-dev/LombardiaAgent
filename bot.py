@@ -203,7 +203,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Extract parameters from query string
     query_params = dict(websocket.query_params)
-    business_status = query_params.get("business_status", "open")
+    business_status = query_params.get("business_status")  # ✅ NO DEFAULT - Must come from TalkDesk
     import uuid
     session_id = query_params.get("session_id", f"session-{uuid.uuid4().hex[:8]}")
     start_node = query_params.get("start_node", "router")  # Default to unified router
@@ -212,10 +212,17 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"New Healthcare Flow WebSocket Connection")
     logger.info(f"Session ID: {session_id}")
-    logger.info(f"Business Status: {business_status}")
+    logger.info(f"Business Status: {business_status or 'NOT PROVIDED - ERROR!'}")  # ✅ Log clearly if missing
     logger.info(f"Start Node: {start_node}")
     logger.info(f"Caller Phone: {caller_phone or 'Not provided'}")
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    # ✅ Validate business_status is provided
+    if not business_status:
+        logger.error("❌ CRITICAL: business_status not provided by TalkDesk bridge!")
+        logger.error("   This will cause incorrect transfer behavior")
+        business_status = "close"  # Safe fallback - no transfers when unsure
+        logger.warning(f"⚠️ Using fallback business_status: {business_status}")
 
     # Variables for pipeline
     runner = None
@@ -345,12 +352,17 @@ async def websocket_endpoint(websocket: WebSocket):
         # CREATE FLOW MANAGER
         flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
 
+        # ✅ Store business_status in flow manager state (required for system prompt)
+        flow_manager.state["business_status"] = business_status
+        logger.info(f"✅ Business status stored in flow state: {business_status}")
+
         # Store caller phone number in flow manager state
         if caller_phone:
             flow_manager.state["caller_phone_from_talkdesk"] = caller_phone
             session_call_logger.log_phone_debug("PHONE_STORED_IN_FLOW_STATE", {
                 "caller_phone": caller_phone,
                 "session_id": session_id,
+                "business_status": business_status,
                 "flow_state_keys": list(flow_manager.state.keys())
             })
 

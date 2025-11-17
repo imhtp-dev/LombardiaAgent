@@ -40,6 +40,9 @@ extra/
 # Bridge connection folder (hosted separately on Azure)
 talkdeskbridge/
 
+# Frontend (moved to separate repository)
+info_frontend/
+
 # Build artifacts
 build/
 dist/

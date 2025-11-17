@@ -3,6 +3,7 @@ Knowledge Base Service
 Queries Cerba Healthcare knowledge base for medical information, FAQs, and documents
 """
 
+import json
 import asyncio
 import aiohttp
 from typing import Optional
@@ -51,23 +52,66 @@ class KnowledgeBaseService:
             await self.initialize()
             
             logger.info(f"📚 Querying knowledge base: '{question[:100]}...'")
-            
+
+            # VAPI-compatible request format
+            request_data = {
+                "message": {
+                    "toolCallList": [
+                        {
+                            "toolCallId": "pipecat_knowledge_base",
+                            "function": {
+                                "name": "query_new",
+                                "arguments": json.dumps({"query": question})
+                            }
+                        }
+                    ]
+                }
+            }
+
             async with self.session.post(
                 self.api_url,
-                json={"query": question},
+                json=request_data,
                 headers={"Content-Type": "application/json"},
                 timeout=aiohttp.ClientTimeout(total=self.timeout)
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                
-                answer = data.get("answer", "")
-                confidence = data.get("confidence", 0.0)
-                source = data.get("source")
-                
+
+                # Debug: Log full API response
+                logger.debug(f"🔍 API Response: {data}")
+
+                # API returns {'results': [{'toolCallId': '...', 'result': {...}}]}
+                results = data.get("results", [])
+
+                if not results or len(results) == 0:
+                    logger.warning("⚠️ API returned empty results")
+                    return KnowledgeBaseResult(
+                        answer="",
+                        confidence=0.0,
+                        success=False,
+                        error="No results found"
+                    )
+
+                # Extract the knowledge base data from results[0]["result"]
+                # Note: result is a dict object (not JSON string)
+                kb_data = results[0].get("result", {})
+
+                if not kb_data:
+                    logger.warning("⚠️ API returned empty knowledge base data")
+                    return KnowledgeBaseResult(
+                        answer="",
+                        confidence=0.0,
+                        success=False,
+                        error="Empty knowledge base data"
+                    )
+
+                answer = kb_data.get("answer", "")
+                confidence = kb_data.get("confidence", 0.0)
+                source = kb_data.get("source")
+
                 logger.success(f"✅ Knowledge base returned answer (confidence: {confidence:.2f})")
                 logger.debug(f"📚 Answer preview: {answer[:200]}...")
-                
+
                 return KnowledgeBaseResult(
                     answer=answer,
                     confidence=confidence,

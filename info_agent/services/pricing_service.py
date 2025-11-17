@@ -3,6 +3,7 @@ Pricing Service
 Handles Agonisticaand non-Agonisticasports medicine visit pricing
 """
 
+import json
 import asyncio
 import aiohttp
 from typing import Optional
@@ -69,14 +70,27 @@ class PricingService:
                 gender = "M"
             
             logger.info(f"💰 Getting Agonistica price: age={age}, gender={gender}, sport={sport}, region={region}")
-            
+
+            # VAPI-compatible request format
             request_data = {
-                "age": age,
-                "gender": gender,
-                "sport": sport,
-                "region": region
+                "message": {
+                    "toolCallList": [
+                        {
+                            "toolCallId": "pipecat_agonistic_pricing",
+                            "function": {
+                                "name": "get_price_agonistic_visit",
+                                "arguments": json.dumps({
+                                    "age": age,
+                                    "gender": gender,
+                                    "sport": sport,
+                                    "region": region
+                                })
+                            }
+                        }
+                    ]
+                }
             }
-            
+
             async with self.session.post(
                 self.agonistic_url,
                 json=request_data,
@@ -85,12 +99,40 @@ class PricingService:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                
-                price = data.get("price", 0.0)
-                visit_type = data.get("visit_type", "Agonistica Visit")
-                
+
+                # Debug: Log full API response
+                logger.debug(f"🔍 API Response: {data}")
+
+                # API returns {'results': [{'toolCallId': '...', 'result': {...}}]}
+                results = data.get("results", [])
+
+                if not results or len(results) == 0:
+                    logger.warning("⚠️ API returned empty results")
+                    return PriceResult(
+                        price=0.0,
+                        visit_type="Error",
+                        success=False,
+                        error="No results found"
+                    )
+
+                # Extract the pricing data from results[0]["result"]
+                # Note: result is a dict object (not JSON string) for pricing API
+                pricing_data = results[0].get("result", {})
+
+                if not pricing_data:
+                    logger.warning("⚠️ API returned empty pricing data")
+                    return PriceResult(
+                        price=0.0,
+                        visit_type="Error",
+                        success=False,
+                        error="Empty pricing data"
+                    )
+
+                price = pricing_data.get("price", 0.0)
+                visit_type = pricing_data.get("type_visit", "Agonistic Visit")
+
                 logger.success(f"✅ Agonistica price: €{price} (visit type: {visit_type})")
-                
+
                 return PriceResult(
                     price=price,
                     visit_type=visit_type,
@@ -142,11 +184,22 @@ class PricingService:
             await self.initialize()
             
             logger.info(f"💰 Getting non-Agonistica price: ECG under stress={ecg_under_stress}")
-            
+
+            # VAPI-compatible request format
             request_data = {
-                "ecg_under_stress": ecg_under_stress
+                "message": {
+                    "toolCallList": [
+                        {
+                            "toolCallId": "pipecat_non_agonistic_pricing",
+                            "function": {
+                                "name": "get_price_non_agonistic_visit",
+                                "arguments": json.dumps({"ecg_under_stress": ecg_under_stress})
+                            }
+                        }
+                    ]
+                }
             }
-            
+
             async with self.session.post(
                 self.non_agonistic_url,
                 json=request_data,
@@ -155,12 +208,40 @@ class PricingService:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                
-                price = data.get("price", 0.0)
-                visit_type = "Non-AgonisticaVisit" + (" with ECG under stress" if ecg_under_stress else "")
-                
+
+                # Debug: Log full API response
+                logger.debug(f"🔍 API Response: {data}")
+
+                # API returns {'results': [{'toolCallId': '...', 'result': {...}}]}
+                results = data.get("results", [])
+
+                if not results or len(results) == 0:
+                    logger.warning("⚠️ API returned empty results")
+                    return PriceResult(
+                        price=0.0,
+                        visit_type="Error",
+                        success=False,
+                        error="No results found"
+                    )
+
+                # Extract the pricing data from results[0]["result"]
+                # Note: result is a dict object (not JSON string) for pricing API
+                pricing_data = results[0].get("result", {})
+
+                if not pricing_data:
+                    logger.warning("⚠️ API returned empty pricing data")
+                    return PriceResult(
+                        price=0.0,
+                        visit_type="Error",
+                        success=False,
+                        error="Empty pricing data"
+                    )
+
+                price = pricing_data.get("price", 0.0)
+                visit_type = pricing_data.get("type_visit", "Non-Agonistic Visit")
+
                 logger.success(f"✅ Non-Agonistica price: €{price}")
-                
+
                 return PriceResult(
                     price=price,
                     visit_type=visit_type,

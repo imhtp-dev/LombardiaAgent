@@ -9,9 +9,8 @@ on:
 
 env:
   REGISTRY: rudyimhtpdev
-  BACKEND_IMAGE: voicebooking_piemo1
-  FRONTEND_IMAGE: dashboard-frontend
-  AZURE_VM_HOST: 98.66.139.255
+  BACKEND_IMAGE: lombardia_region
+  AZURE_VM_HOST: 20.199.66.239
   AZURE_VM_USER: azureuser
 
 jobs:
@@ -29,7 +28,7 @@ jobs:
         run: |
           # Generate version
           echo "version=v$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          
+
           # Detect what changed
           if git diff --name-only HEAD^ HEAD | grep -E '^(info_agent|config|flows|models|pipeline|services|utils|bot\.py|requirements\.txt|Dockerfile)'; then
             echo "backend=true" >> $GITHUB_OUTPUT
@@ -38,21 +37,13 @@ jobs:
             echo "backend=false" >> $GITHUB_OUTPUT
             echo "⏭️ Backend unchanged"
           fi
-          
-          if git diff --name-only HEAD^ HEAD | grep -E '^(info_frontend|Dockerfile\.frontend)'; then
-            echo "frontend=true" >> $GITHUB_OUTPUT
-            echo "✅ Frontend changed"
-          else
-            echo "frontend=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Frontend unchanged"
-          fi
       
       - name: Set up Docker Buildx
-        if: steps.meta.outputs.backend == 'true' || steps.meta.outputs.frontend == 'true'
+        if: steps.meta.outputs.backend == 'true'
         uses: docker/setup-buildx-action@v3
-      
+
       - name: Login to Docker Hub
-        if: steps.meta.outputs.backend == 'true' || steps.meta.outputs.frontend == 'true'
+        if: steps.meta.outputs.backend == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -70,19 +61,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
-      - name: Build and Push Frontend
-        if: steps.meta.outputs.frontend == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.frontend
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
-            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      
       - name: Deploy to Azure VM
         uses: appleboy/ssh-action@master
         with:
@@ -90,7 +68,7 @@ jobs:
           username: ${{ env.AZURE_VM_USER }}
           key: ${{ secrets.AZURE_SSH_KEY }}
           script: |
-            cd /home/azureuser/voilavoicebooking
+            cd /home/azureuser/voilavoiceagent
 
             # Pull latest code (force update to match remote)
             echo "📥 Pulling latest code..."
@@ -169,21 +147,18 @@ jobs:
               fi
             done
             
-            docker pull ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest || echo "⚠️ Frontend pull skipped (may not have changed)"
-            
+
             # Tag current images as backup (for rollback)
             echo "💾 Creating backup tags..."
-            docker tag $(docker inspect --format='{{.Image}}' info-agent 2>/dev/null || echo "none") ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:backup 2>/dev/null || true
-            docker tag $(docker inspect --format='{{.Image}}' dashboard-frontend 2>/dev/null || echo "none") ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:backup 2>/dev/null || true
+            docker tag $(docker inspect --format='{{.Image}}' pipecat-agent-1 2>/dev/null || echo "none") ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:backup 2>/dev/null || true
             
             # Create necessary directories
-            mkdir -p logs/nginx
-            
+            mkdir -p logs/nginx recordings
+
             # Restart services if config changed
             if [ $CONFIG_CHANGED -eq 1 ]; then
-              echo "🔄 Restarting services with new configuration..."
+              echo "🔄 Restarting nginx load balancer with new configuration..."
               docker-compose restart nginx-lb
-              docker-compose up -d --build --no-deps dashboard-frontend
               sleep 5
             fi
             
@@ -198,27 +173,12 @@ jobs:
             # Health checks with rollback on failure
             echo "🏥 Health checks..."
             HEALTH_CHECK_FAILED=0
-            
-            # Check backend (critical)
-            if curl -f http://localhost:8081/health >/dev/null 2>&1; then
-              echo "✅ Backend (info-agent) is healthy"
-            else
-              echo "❌ Backend health check failed"
-              HEALTH_CHECK_FAILED=1
-            fi
-            
-            # Check frontend
-            if curl -f http://localhost:8082 >/dev/null 2>&1; then
-              echo "✅ Frontend (dashboard) is healthy"
-            else
-              echo "⚠️ Frontend health check failed (non-critical)"
-            fi
-            
-            # Check booking agents (critical)
+
+            # Check Pipecat agents (critical)
             if curl -f http://localhost:8000/health >/dev/null 2>&1; then
-              echo "✅ Booking agents are healthy"
+              echo "✅ Pipecat agents are healthy"
             else
-              echo "❌ Booking agents health check failed"
+              echo "❌ Pipecat agents health check failed"
               HEALTH_CHECK_FAILED=1
             fi
             
@@ -257,9 +217,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend**: ${{ steps.meta.outputs.backend == 'true' && '✅ Built' || '⏭️ Skipped' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Frontend**: ${{ steps.meta.outputs.frontend == 'true' && '✅ Built' || '⏭️ Skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Access URLs:" >> $GITHUB_STEP_SUMMARY
-          echo "- 🌐 **Dashboard**: http://${{ env.AZURE_VM_HOST }}:8000" >> $GITHUB_STEP_SUMMARY
-          echo "- 🔌 **API**: http://${{ env.AZURE_VM_HOST }}:8000/api" >> $GITHUB_STEP_SUMMARY
-          echo "- 📞 **Voice**: ws://${{ env.AZURE_VM_HOST }}:8000/ws" >> $GITHUB_STEP_SUMMARY
+          echo "- 📞 **Voice WebSocket**: ws://${{ env.AZURE_VM_HOST }}:8000/ws" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏥 **Health Check**: http://${{ env.AZURE_VM_HOST }}:8000/health" >> $GITHUB_STEP_SUMMARY

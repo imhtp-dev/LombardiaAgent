@@ -90,7 +90,7 @@ async def check_followup_handler(
             return {
                 "needs_more_help": True,
                 "action": "continue conversation"
-            }, create_greeting_node()
+            }, create_greeting_node(flow_manager)
         else:
             # End conversation gracefully
             logger.info("👋 User satisfied - ending conversation")

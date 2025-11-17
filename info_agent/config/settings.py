@@ -78,10 +78,30 @@ class InfoAgentSettings:
     
     @property
     def system_prompt(self) -> str:
-        """Complete system prompt for Ualà"""
+        """
+        Static system prompt (backward compatibility)
+        For production, use get_system_prompt(business_status) instead
+        """
+        return self.get_system_prompt(business_status="open")
+
+    def get_system_prompt(self, business_status: str) -> str:
+        """
+        Generate dynamic system prompt for Ualà with business_status
+
+        Args:
+            business_status: Current business status from TalkDesk ("open" or "close") - REQUIRED
+
+        Returns:
+            Complete system prompt with injected business_status
+        """
+        if not business_status:
+            raise ValueError("business_status is required and must be provided by TalkDesk")
+
         agent = self.agent_config
-        
+
         return f"""# System Prompt for Medical Information Voice Agent - Ualà
+
+**CURRENT BUSINESS STATUS: {business_status.upper()}**
 
 **For requests about Summer Closures or Blood Test Hours ALWAYS ask which clinic location they want this information for**
 Example 1:
@@ -164,7 +184,7 @@ else: #if we are open
 1. One question at a time
 2. Active listening ("I understand", "perfect")
 3. Confirmation paraphrase ("You told me he's 16 and plays basketball, right?")
-4. Never use {agent["language"]} words or numbers
+4. Never use English words or numbers
 
 ### 2.1 TIME FORMAT
 
@@ -430,6 +450,7 @@ Ualà: [Call transfer_to_human_operator()]
 5. Before transferring, inform the patient if he or she wants to be handed over to a human operator.
 6. Guide the patient when undecided
 7. Admit when you have no information and transfer the call
+8. Always speak italian
 """
     
     @property

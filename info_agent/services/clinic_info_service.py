@@ -3,6 +3,7 @@ Clinic Information Service
 Provides clinic hours, locations, summer closures, blood collection times via call_graph API
 """
 
+import json
 import asyncio
 import aiohttp
 from typing import Optional
@@ -39,31 +40,37 @@ class ClinicInfoService:
     
     async def get_clinic_info(
         self,
-        location: str,
-        info_type: str
+        query: str
     ) -> ClinicInfoResult:
         """
         Get clinic information using call_graph API
-        
+
         Args:
-            location: Clinic location/city (e.g., 'Novara', 'Biella', 'Milano')
-            info_type: Type of information (e.g., 'summer closures', 'blood collection times', 'hours')
-            
+            query: Natural language query including location (e.g., 'orari della sede di Biella', 'chiusure estive Novara')
+
         Returns:
             ClinicInfoResult with answer
         """
         try:
             await self.initialize()
-            
-            # Construct query as: "info_type, location location"
-            query = f"{info_type}, {location} location"
-            
+
             logger.info(f"🏥 Getting clinic info: '{query}'")
-            
+
+            # VAPI-compatible request format
             request_data = {
-                "q": query
+                "message": {
+                    "toolCallList": [
+                        {
+                            "toolCallId": "pipecat_clinic_info",
+                            "function": {
+                                "name": "call_graph",
+                                "arguments": json.dumps({"q": query})
+                            }
+                        }
+                    ]
+                }
             }
-            
+
             async with self.session.post(
                 self.api_url,
                 json=request_data,
@@ -72,16 +79,37 @@ class ClinicInfoService:
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
-                
-                answer = data.get("answer", "")
-                
-                logger.success(f"✅ Clinic info retrieved for {location}")
+
+                # Debug: Log full API response
+                logger.debug(f"🔍 API Response: {data}")
+
+                # API returns {'results': [{'toolCallId': '...', 'result': '...'}]}
+                results = data.get("results", [])
+
+                if not results or len(results) == 0:
+                    logger.warning("⚠️ API returned empty results")
+                    return ClinicInfoResult(
+                        answer="",
+                        success=False,
+                        error="No results found"
+                    )
+
+                # Extract the actual answer from results[0]["result"]
+                answer = results[0].get("result", "") if results else ""
+
+                if not answer:
+                    logger.warning("⚠️ API returned empty answer")
+                    return ClinicInfoResult(
+                        answer="",
+                        success=False,
+                        error="Empty answer"
+                    )
+
+                logger.success(f"✅ Clinic info retrieved")
                 logger.debug(f"🏥 Answer preview: {answer[:200]}...")
-                
+
                 return ClinicInfoResult(
                     answer=answer,
-                    location=location,
-                    info_type=info_type,
                     success=True
                 )
                 
@@ -89,28 +117,22 @@ class ClinicInfoService:
             logger.error(f"❌ Clinic info API error {e.status}: {e.message}")
             return ClinicInfoResult(
                 answer="Mi dispiace, non riesco a recuperare le informazioni sulla clinica. Vuoi parlare con un operatore?",
-                location=location,
-                info_type=info_type,
                 success=False,
                 error=f"API error: {e.status}"
             )
-        
+
         except asyncio.TimeoutError:
             logger.error(f"❌ Clinic info query timeout after {self.timeout}s")
             return ClinicInfoResult(
                 answer="Mi dispiace, la ricerca sta richiedendo troppo tempo. Vuoi parlare con un operatore?",
-                location=location,
-                info_type=info_type,
                 success=False,
                 error="Timeout"
             )
-        
+
         except Exception as e:
             logger.error(f"❌ Clinic info query failed: {e}")
             return ClinicInfoResult(
                 answer="Mi dispiace, ho riscontrato un errore. Vuoi parlare con un operatore?",
-                location=location,
-                info_type=info_type,
                 success=False,
                 error=str(e)
             )

@@ -1,33 +1,14 @@
 #!/bin/bash
 # Rollback to previous deployment
-# Usage: ./rollback.sh [backend|frontend|all]
+# Usage: ./rollback.sh
 
-COMPONENT=${1:-all}
+echo "🔄 Rolling back Pipecat agents to previous version..."
 
-echo "🔄 Rolling back: $COMPONENT"
+# Restore backup image
+docker tag rudyimhtpdev/lombardia_region:backup rudyimhtpdev/lombardia_region:latest
 
-case $COMPONENT in
-  backend)
-    echo "Rolling back backend to :backup tag..."
-    docker tag rudyimhtpdev/voicebooking_piemo1:backup rudyimhtpdev/voicebooking_piemo1:latest
-    docker-compose up -d --no-deps info-agent
-    ;;
-  frontend)
-    echo "Rolling back frontend to :backup tag..."
-    docker tag rudyimhtpdev/dashboard-frontend:backup rudyimhtpdev/dashboard-frontend:latest
-    docker-compose up -d --no-deps dashboard-frontend
-    ;;
-  all)
-    echo "Rolling back all services..."
-    docker tag rudyimhtpdev/voicebooking_piemo1:backup rudyimhtpdev/voicebooking_piemo1:latest
-    docker tag rudyimhtpdev/dashboard-frontend:backup rudyimhtpdev/dashboard-frontend:latest
-    docker-compose up -d --no-deps info-agent dashboard-frontend
-    ;;
-  *)
-    echo "Usage: ./rollback.sh [backend|frontend|all]"
-    exit 1
-    ;;
-esac
+# Restart all pipecat agents
+docker-compose up -d --no-deps pipecat-agent-1 pipecat-agent-2 pipecat-agent-3
 
 echo "✅ Rollback complete"
 echo "Checking status..."
