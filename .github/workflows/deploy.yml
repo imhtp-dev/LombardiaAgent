@@ -164,7 +164,7 @@ jobs:
             
             # Deploy updates
             echo "🚀 Deploying services..."
-            docker-compose up -d
+            docker-compose up -d --no-deps
             echo "✅ Deployment complete"
             
             # Wait for services to start
