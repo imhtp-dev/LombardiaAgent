@@ -236,7 +236,8 @@ async def websocket_endpoint(websocket: WebSocket):
     session_id = query_params.get("session_id", f"session-{uuid.uuid4().hex[:8]}")
     start_node = query_params.get("start_node", "router")  # Default to unified router
     caller_phone = query_params.get("caller_phone", "")
-    stream_sid = query_params.get("stream_sid", "")  # ✅ Talkdesk stream SID (for escalation)
+    stream_sid = query_params.get("stream_sid", "")  # ✅ Talkdesk stream SID (for escalation stop message)
+    interaction_id = query_params.get("interaction_id", "")  # ✅ Talkdesk interaction ID (for database tracking)
 
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"New Healthcare Flow WebSocket Connection")
@@ -244,7 +245,8 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"Business Status: {business_status or 'NOT PROVIDED - ERROR!'}")  # ✅ Log clearly if missing
     logger.info(f"Start Node: {start_node}")
     logger.info(f"Caller Phone: {caller_phone or 'Not provided'}")
-    logger.info(f"Stream SID: {stream_sid or 'Not provided'}")  # ✅ Talkdesk stream ID
+    logger.info(f"Stream SID: {stream_sid or 'Not provided'}")  # ✅ Talkdesk stream SID (for escalation)
+    logger.info(f"Interaction ID: {interaction_id or 'Not provided'}")  # ✅ Talkdesk interaction ID
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     # ✅ Validate business_status is provided
@@ -367,9 +369,11 @@ async def websocket_endpoint(websocket: WebSocket):
         flow_manager.state["business_status"] = business_status
         flow_manager.state["session_id"] = session_id
         flow_manager.state["stream_sid"] = stream_sid  # ✅ Talkdesk stream SID for escalation
+        flow_manager.state["interaction_id"] = interaction_id  # ✅ Talkdesk interaction ID for database
         logger.info(f"✅ Business status stored in flow state: {business_status}")
         logger.info(f"✅ Session ID stored in flow state: {session_id}")
         logger.info(f"✅ Stream SID stored in flow state: {stream_sid or 'Not provided'}")
+        logger.info(f"✅ Interaction ID stored in flow state: {interaction_id or 'Not provided'}")
 
         # Store caller phone number in flow manager state
         if caller_phone:
@@ -469,6 +473,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     call_extractor = flow_manager.state.get("call_extractor")
                     if call_extractor:
+                        # ✅ CRITICAL: Mark call end time before saving
+                        call_extractor.end_call()
                         success = await call_extractor.save_to_database(flow_manager.state)
                         if success:
                             logger.success(f"✅ Info agent call data saved to Supabase for session: {session_id}")

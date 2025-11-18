@@ -483,6 +483,8 @@ async def websocket_endpoint(websocket: WebSocket):
             # ✅ Save call data to database (UPDATE existing row)
             try:
                 logger.info(f"📊 Saving call data to database...")
+                # ✅ CRITICAL: Mark call end time before saving
+                call_extractor.end_call()
                 success = await call_extractor.save_to_database(flow_manager.state)
                 if success:
                     logger.success("✅ Call data saved to Supabase tb_stat")

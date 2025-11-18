@@ -513,7 +513,6 @@ class CallDataExtractor:
 
             # Calculate basic metrics
             duration_seconds = self._calculate_duration()
-            cost = self._calculate_cost(duration_seconds)
 
             # Generate transcript
             transcript_text = self._generate_transcript_text()
@@ -559,6 +558,9 @@ class CallDataExtractor:
                 motivazione = analysis.get("motivazione", "Info fornite")
                 patient_intent = analysis.get("patient_intent", "Richiesta informazioni")
                 summary = analysis.get("summary", "")[:250]  # Limit to 250 chars
+
+            # ✅ Calculate cost AFTER we have final duration_seconds (from transfer_data or normal calculation)
+            cost = self._calculate_cost(duration_seconds)
 
             logger.info(f"📊 Call Data Summary:")
             logger.info(f"   Call ID: {self.call_id}")

@@ -248,6 +248,24 @@ global_caller_phone = None
 global_patient_dob = None
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection pool on startup"""
+    from info_agent.api.database import db
+    logger.info("🚀 Initializing Supabase database connection pool...")
+    await db.connect()
+    logger.success("✅ Supabase database initialized for chat_test.py")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connection pool on shutdown"""
+    from info_agent.api.database import db
+    logger.info("🛑 Closing Supabase database connection pool...")
+    await db.close()
+    logger.info("✅ Database connection closed")
+
+
 @app.get("/")
 async def root():
     """Serve the chat interface HTML"""
@@ -883,11 +901,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
 
-    import uuid
-    session_id = f"chat-test-{uuid.uuid4().hex[:8]}"
+    # ✅ Use existing Supabase UUID for testing (row already created with bridge data)
+    session_id = "49b78a42-9024-4646-95e2-d2d6f4f8a17b"
 
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info(f"New Text Chat Session")
+    logger.info(f"New Text Chat Session (using Supabase test UUID)")
     logger.info(f"Session ID: {session_id}")
     logger.info(f"Start Node: {global_start_node}")
     logger.info(f"Mode: Text-only (No STT/TTS)")
@@ -967,9 +985,13 @@ async def websocket_endpoint(websocket: WebSocket):
         flow_manager.state["business_status"] = "open"  # Always open for testing
         flow_manager.state["session_id"] = session_id
         flow_manager.state["stream_sid"] = ""  # Empty for text chat testing (no Talkdesk)
+        flow_manager.state["interaction_id"] = "d2568ef3-b8c9-4cbc-ac90-6100d4c0e8c0"  # ✅ Simulated Talkdesk interaction ID
+        flow_manager.state["caller_phone_from_talkdesk"] = "+393333319326"  # ✅ Default test phone number
         logger.info(f"✅ Business status stored in flow state: open (testing)")
         logger.info(f"✅ Session ID stored in flow state: {session_id}")
         logger.info(f"✅ Stream SID: Not applicable (text chat testing)")
+        logger.info(f"✅ Interaction ID: d2568ef3-b8c9-4cbc-ac90-6100d4c0e8c0 (simulated)")
+        logger.info(f"✅ Caller Phone: +393333319326 (default test number)")
 
         # PRE-POPULATE STATE WITH CALLER INFO (Simulate Talkdesk caller ID)
         if global_caller_phone:
@@ -1074,6 +1096,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
                         call_extractor = flow_manager.state.get("call_extractor")
                         if call_extractor:
+                            # ✅ CRITICAL: Mark call end time before saving
+                            call_extractor.end_call()
                             success = await call_extractor.save_to_database(flow_manager.state)
                             if success:
                                 logger.success(f"✅ Info agent call data saved to Supabase for session: {session_id}")

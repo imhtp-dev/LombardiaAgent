@@ -91,6 +91,16 @@ async def route_to_info_handler(
     # CRITICAL: Override call_id with session_id from bridge (so we update the correct row)
     call_extractor.call_id = session_id
 
+    # ✅ CRITICAL: Start the call to initialize started_at timestamp (for duration calculation)
+    caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+    interaction_id = flow_manager.state.get("interaction_id", "")
+    call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+
+    # ✅ CRITICAL: Add the initial user message to transcript (first message from router)
+    if question_type:
+        call_extractor.add_transcript_entry("user", question_type)
+        logger.info(f"📝 Added initial user message to transcript: {question_type[:50]}...")
+
     flow_manager.state["call_extractor"] = call_extractor
     logger.info(f"📊 State updated: current_agent=info, call_extractor initialized with call_id={session_id}")
 
@@ -195,6 +205,16 @@ async def transfer_from_booking_to_info_handler(
 
     # CRITICAL: Override call_id with session_id from bridge (so we update the correct row)
     call_extractor.call_id = session_id
+
+    # ✅ CRITICAL: Start the call to initialize started_at timestamp (for duration calculation)
+    caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+    interaction_id = flow_manager.state.get("interaction_id", "")
+    call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+
+    # ✅ CRITICAL: Add the initial user question to transcript (first message after booking)
+    if user_question:
+        call_extractor.add_transcript_entry("user", user_question)
+        logger.info(f"📝 Added post-booking user question to transcript: {user_question[:50]}...")
 
     flow_manager.state["call_extractor"] = call_extractor
 
