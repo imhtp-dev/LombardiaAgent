@@ -428,7 +428,75 @@ class CallDataExtractor:
             summary_parts.append(f"Funzioni utilizzate: {', '.join(functions_called)}.")
 
         return " ".join(summary_parts)
-    
+
+    async def analyze_for_transfer(self, flow_state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Run early analysis for transfer escalation (before WebSocket closes)
+        Reuses LLM analysis logic to extract data needed for escalation API
+
+        This is called BEFORE transfer happens to get:
+        - summary (max 250 chars)
+        - sentiment
+        - action (will be "transfer")
+        - duration_seconds (from call start to NOW)
+        - service (IVR code 1-5)
+
+        Args:
+            flow_state: Flow manager state
+
+        Returns:
+            Dict with escalation data
+        """
+        try:
+            logger.info("🔄 Running early analysis for transfer escalation...")
+
+            # Calculate duration from start to NOW (not call end)
+            if self.started_at:
+                duration_seconds = (datetime.now() - self.started_at).total_seconds()
+            else:
+                duration_seconds = 0
+
+            # Generate transcript text
+            transcript_text = self._generate_transcript_text()
+
+            # Run LLM analysis (same as post-call)
+            if transcript_text:
+                analysis = await self._analyze_call_with_llm(transcript_text, flow_state)
+            else:
+                logger.warning("⚠️ No transcript for transfer analysis, using fallback")
+                analysis = self._get_fallback_analysis(flow_state)
+
+            # Extract and format data for escalation API
+            escalation_data = {
+                "summary": analysis.get("summary", "Transfer richiesto")[:250],
+                "sentiment": analysis.get("sentiment", "neutral"),
+                "action": "transfer",  # Always transfer for escalation
+                "duration_seconds": int(duration_seconds),
+                "service": str(analysis.get("service", "5"))  # IVR code as string
+            }
+
+            logger.success(f"✅ Transfer analysis completed:")
+            logger.info(f"   Duration: {escalation_data['duration_seconds']}s")
+            logger.info(f"   Sentiment: {escalation_data['sentiment']}")
+            logger.info(f"   Service: {escalation_data['service']}")
+            logger.info(f"   Summary: {escalation_data['summary'][:100]}...")
+
+            return escalation_data
+
+        except Exception as e:
+            logger.error(f"❌ Transfer analysis failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # Return safe defaults
+            return {
+                "summary": "Transfer richiesto dal paziente",
+                "sentiment": "neutral",
+                "action": "transfer",
+                "duration_seconds": 0,
+                "service": "5"
+            }
+
     async def save_to_database(self, flow_state: Dict[str, Any]) -> bool:
         """
         Extract all data and UPDATE tb_stat table row (bridge already created it)
@@ -453,21 +521,44 @@ class CallDataExtractor:
             # Get phone number
             phone_number = flow_state.get("caller_phone") or self.caller_phone
 
-            # Use LLM to analyze call and extract structured data
-            if transcript_text:
-                analysis = await self._analyze_call_with_llm(transcript_text, flow_state)
-            else:
-                logger.warning("⚠️ No transcript available, using fallback analysis")
-                analysis = self._get_fallback_analysis(flow_state)
+            # Check if we have pre-computed transfer analysis
+            if flow_state.get("transfer_requested") and flow_state.get("transfer_analysis"):
+                logger.info("📋 Using pre-computed transfer analysis for Supabase save")
+                transfer_data = flow_state["transfer_analysis"]
 
-            # Extract fields from LLM analysis
-            action = analysis.get("action", "completed")
-            sentiment = analysis.get("sentiment", "neutral")
-            service = str(analysis.get("service", "5"))  # IVR code 1-5
-            esito_chiamata = analysis.get("esito_chiamata", "COMPLETATA")
-            motivazione = analysis.get("motivazione", "Info fornite")
-            patient_intent = analysis.get("patient_intent", "Richiesta informazioni")
-            summary = analysis.get("summary", "")[:250]  # Limit to 250 chars
+                # Use transfer analysis data
+                action = "transfer"
+                sentiment = transfer_data.get("sentiment", "neutral")
+                service = str(transfer_data.get("service", "5"))
+                esito_chiamata = "TRASFERITA"
+                motivazione = "Trasferimento operatore umano"
+                patient_intent = "Richiesta assistenza operatore"
+                summary = transfer_data.get("summary", "Transfer richiesto")[:250]
+
+                # Duration already calculated during transfer
+                duration_seconds = transfer_data.get("duration_seconds", duration_seconds)
+
+                logger.info("✅ Transfer analysis data loaded from flow_state")
+
+            else:
+                # Normal post-call analysis (no transfer)
+                logger.info("🤖 Running normal post-call LLM analysis")
+
+                # Use LLM to analyze call and extract structured data
+                if transcript_text:
+                    analysis = await self._analyze_call_with_llm(transcript_text, flow_state)
+                else:
+                    logger.warning("⚠️ No transcript available, using fallback analysis")
+                    analysis = self._get_fallback_analysis(flow_state)
+
+                # Extract fields from LLM analysis
+                action = analysis.get("action", "completed")
+                sentiment = analysis.get("sentiment", "neutral")
+                service = str(analysis.get("service", "5"))  # IVR code 1-5
+                esito_chiamata = analysis.get("esito_chiamata", "COMPLETATA")
+                motivazione = analysis.get("motivazione", "Info fornite")
+                patient_intent = analysis.get("patient_intent", "Richiesta informazioni")
+                summary = analysis.get("summary", "")[:250]  # Limit to 250 chars
 
             logger.info(f"📊 Call Data Summary:")
             logger.info(f"   Call ID: {self.call_id}")

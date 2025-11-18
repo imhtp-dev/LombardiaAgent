@@ -110,3 +110,84 @@ async def check_followup_handler(
             "error": str(e),
             "action": "end conversation (error)"
         }, create_goodbye_node()
+
+
+async def handle_transfer_escalation(
+    flow_manager: FlowManager
+) -> None:
+    """
+    Handle escalation API call for transfer to human operator
+
+    Called AFTER agent says transfer message, BEFORE call ends
+    This runs early analysis and calls the bridge escalation API
+
+    Flow:
+    1. Get call_extractor from flow_manager.state
+    2. Run early analysis (LLM analyzes transcript NOW)
+    3. Call bridge escalation API with analysis data
+    4. Store analysis for later Supabase save
+    5. If API fails: end call anyway (per requirement)
+
+    Note: WebSocket closes automatically after escalation API call
+
+    Args:
+        flow_manager: Flow manager instance
+    """
+    try:
+        logger.info("🚀 Starting transfer escalation process...")
+
+        # Get call_extractor and session_id from flow state
+        call_extractor = flow_manager.state.get("call_extractor")
+        session_id = flow_manager.state.get("session_id")
+
+        if not call_extractor:
+            logger.error("❌ No call_extractor found in flow_state")
+            return
+
+        if not session_id:
+            logger.error("❌ No session_id found in flow_state")
+            return
+
+        logger.info(f"📋 Running early analysis for call {session_id}...")
+
+        # Run analysis NOW (before WebSocket closes)
+        analysis = await call_extractor.analyze_for_transfer(flow_manager.state)
+
+        logger.success("✅ Transfer analysis complete")
+        logger.info(f"   Summary: {analysis['summary'][:100]}...")
+        logger.info(f"   Sentiment: {analysis['sentiment']}")
+        logger.info(f"   Service: {analysis['service']}")
+        logger.info(f"   Duration: {analysis['duration_seconds']}s")
+
+        # Call escalation API (WebSocket closes automatically)
+        logger.info("📞 Calling bridge escalation API...")
+
+        from info_agent.services.escalation_service import call_escalation_api
+
+        success = await call_escalation_api(
+            summary=analysis["summary"][:250],  # Ensure max 250 chars
+            sentiment=analysis["sentiment"],
+            action="transfer",
+            duration=str(analysis["duration_seconds"]),
+            service=analysis["service"]
+        )
+
+        # Store analysis for Supabase (happens after WebSocket closes)
+        flow_manager.state["transfer_analysis"] = analysis
+        flow_manager.state["transfer_api_success"] = success
+
+        if success:
+            logger.success(f"✅ Escalation API call successful for {session_id}")
+            logger.info("🔌 WebSocket will close automatically (handled by bridge)")
+        else:
+            logger.error(f"❌ Escalation API call failed for {session_id}")
+            logger.warning("⚠️ Ending call anyway per requirement")
+
+    except Exception as e:
+        logger.error(f"❌ Transfer escalation error: {e}")
+        import traceback
+        traceback.print_exc()
+
+        # Store error in flow state but still end call
+        flow_manager.state["transfer_escalation_error"] = str(e)
+        logger.warning("⚠️ Ending call despite escalation error")
