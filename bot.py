@@ -106,6 +106,34 @@ app.add_middleware(
 # Store for active sessions
 active_sessions: Dict[str, Any] = {}
 
+# STARTUP & SHUTDOWN EVENTS
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection on startup"""
+    logger.info("🚀 Starting up Healthcare Flow Bot...")
+
+    # Initialize Supabase database connection for info agent
+    try:
+        from info_agent.api.database import db
+        await db.connect()
+        logger.success("✅ Info agent Supabase database initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Supabase database: {e}")
+        logger.warning("⚠️ Info agent will use backup files for failed database saves")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connection on shutdown"""
+    logger.info("🛑 Shutting down Healthcare Flow Bot...")
+
+    # Close Supabase database connection
+    try:
+        from info_agent.api.database import db
+        await db.close()
+        logger.success("✅ Info agent Supabase database closed")
+    except Exception as e:
+        logger.error(f"❌ Error closing Supabase database: {e}")
+
 # HOMEPAGE 
 
 @app.get("/")
