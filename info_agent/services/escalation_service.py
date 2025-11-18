@@ -7,7 +7,7 @@ from loguru import logger
 from typing import Optional
 
 # Bridge escalation endpoint
-ESCALATION_API_URL = "https://bridgeapitvchc-ptnbridge-eyfbgsbsdwepfgb3.francecentral-01.azurewebsites.net/escalation"
+ESCALATION_API_URL = "https://bridgelombardia-bjezhhgmctauawe3.francecentral-01.azurewebsites.net/escalation"
 
 
 async def call_escalation_api(
