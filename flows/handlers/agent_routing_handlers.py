@@ -83,7 +83,12 @@ async def route_to_info_handler(
     if question_type:
         flow_manager.state["initial_question_type"] = question_type
 
-    logger.info(f"📊 State updated: current_agent=info, can_transfer_to_booking=True")
+    # Initialize call_extractor for info agent (Supabase storage)
+    session_id = flow_manager.state.get("session_id", "unknown")
+    from info_agent.services.call_data_extractor import get_call_extractor
+    call_extractor = get_call_extractor(session_id)
+    flow_manager.state["call_extractor"] = call_extractor
+    logger.info(f"📊 State updated: current_agent=info, call_extractor initialized, can_transfer_to_booking=True")
 
     # Import and return info greeting node
     from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node
@@ -92,7 +97,7 @@ async def route_to_info_handler(
         "routed_to": "info_agent",
         "question_type": question_type,
         "timestamp": __import__('datetime').datetime.now().isoformat()
-    }, create_info_greeting_node()
+    }, create_info_greeting_node(flow_manager)
 
 
 async def transfer_from_info_to_booking_handler(
@@ -179,7 +184,13 @@ async def transfer_from_booking_to_info_handler(
     if user_question:
         flow_manager.state["post_booking_question"] = user_question
 
-    logger.success(f"✅ Transfer complete: BOOKING → INFO (post-completion)")
+    # Initialize call_extractor for info agent (Supabase storage)
+    session_id = flow_manager.state.get("session_id", "unknown")
+    from info_agent.services.call_data_extractor import get_call_extractor
+    call_extractor = get_call_extractor(session_id)
+    flow_manager.state["call_extractor"] = call_extractor
+
+    logger.success(f"✅ Transfer complete: BOOKING → INFO (post-completion), call_extractor initialized")
 
     # Import and return info greeting node
     from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node
@@ -189,4 +200,4 @@ async def transfer_from_booking_to_info_handler(
         "user_question": user_question,
         "post_booking": True,
         "timestamp": __import__('datetime').datetime.now().isoformat()
-    }, create_info_greeting_node()
+    }, create_info_greeting_node(flow_manager)
