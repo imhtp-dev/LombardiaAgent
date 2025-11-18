@@ -162,8 +162,11 @@ jobs:
               sleep 5
             fi
             
-            # Deploy updates
+            # Deploy updates (use down + up to avoid docker-compose v1.29.2 recreation bug)
             echo "🚀 Deploying services..."
+            echo "⏬ Stopping old containers..."
+            docker-compose down
+            echo "⏫ Starting new containers..."
             docker-compose up -d
             echo "✅ Deployment complete"
             
