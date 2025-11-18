@@ -5,7 +5,6 @@ Handles transfer to human operator with escalation API call
 
 from pipecat_flows import NodeConfig
 from info_agent.config.settings import info_settings
-from info_agent.flows.handlers.transfer_handlers import handle_transfer_escalation
 
 
 def create_transfer_node() -> NodeConfig:
@@ -13,13 +12,11 @@ def create_transfer_node() -> NodeConfig:
     Create transfer node that handles escalation to human operator
 
     Flow:
-    1. Agent says transfer message (Italian)
-    2. Pre-action: Calls handle_transfer_escalation() which:
-       - Runs early LLM analysis
-       - Calls bridge escalation API
-       - Stores analysis for Supabase
-    3. Post-action: Ends conversation
-    4. WebSocket closes automatically (handled by bridge)
+    1. request_transfer_handler calls handle_transfer_escalation() (runs LLM analysis + bridge API)
+    2. Handler returns this transfer node
+    3. Agent says transfer message (Italian)
+    4. Post-action: Ends conversation
+    5. WebSocket closes automatically (handled by bridge)
     """
 
     return NodeConfig(
@@ -35,7 +32,6 @@ def create_transfer_node() -> NodeConfig:
             }
         ],
         functions=[],  # No functions needed
-        pre_actions=[handle_transfer_escalation],  # Call escalation API before ending
         post_actions=[
             {
                 "type": "end_conversation",

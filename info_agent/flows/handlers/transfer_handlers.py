@@ -16,29 +16,30 @@ async def request_transfer_handler(
 ) -> Tuple[Dict[str, Any], NodeConfig]:
     """
     Handle transfer to human operator
-    
+
     Args:
         args: Function arguments with reason
         flow_manager: Flow manager instance
-        
+
     Returns:
         Tuple of (result dict, transfer node)
     """
     try:
         reason = args.get("reason", "user request").strip()
-        
+
         logger.info(f"📞 Transfer requested: {reason}")
-        
+
         # Store transfer information in flow state
         flow_manager.state["transfer_requested"] = True
         flow_manager.state["transfer_reason"] = reason
         flow_manager.state["transfer_timestamp"] = str(asyncio.get_event_loop().time())
-        
-        # Note: Actual escalation API call will be handled by the main.py
-        # when the pipeline ends, similar to booking agent's escalation flow
-        
+
+        # Run transfer escalation NOW (before returning transfer node)
+        logger.info("🚀 Running transfer escalation before transition...")
+        await handle_transfer_escalation(flow_manager)
+
         logger.success(f"✅ Transfer initiated: {reason}")
-        
+
         # Transition to transfer node
         from info_agent.flows.nodes.transfer import create_transfer_node
         return {
@@ -46,10 +47,10 @@ async def request_transfer_handler(
             "reason": reason,
             "message": "Transferring to human operator"
         }, create_transfer_node()
-        
+
     except Exception as e:
         logger.error(f"❌ Transfer handler error: {e}")
-        
+
         # Even on error, still transfer (safe fallback)
         from info_agent.flows.nodes.transfer import create_transfer_node
         return {

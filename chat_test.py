@@ -942,6 +942,12 @@ async def websocket_endpoint(websocket: WebSocket):
         # CREATE FLOW MANAGER
         flow_manager = create_flow_manager(task, llm, context_aggregator, None)
 
+        # Store business_status and session_id in flow manager state (required for info agent)
+        flow_manager.state["business_status"] = "open"  # Always open for testing
+        flow_manager.state["session_id"] = session_id
+        logger.info(f"✅ Business status stored in flow state: open (testing)")
+        logger.info(f"✅ Session ID stored in flow state: {session_id}")
+
         # PRE-POPULATE STATE WITH CALLER INFO (Simulate Talkdesk caller ID)
         if global_caller_phone:
             flow_manager.state["caller_phone_from_talkdesk"] = global_caller_phone
@@ -1023,17 +1029,45 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         # Cleanup
         if session_id in active_sessions:
-            # Extract and store call data
+            # Extract and store call data before cleanup
+            # Route to appropriate storage based on which agent handled the call
             try:
-                logger.info(f"📊 Extracting call data for session: {session_id}")
-                session_transcript_manager = get_transcript_manager(session_id)
                 flow_manager = active_sessions[session_id].get("flow_manager")
                 if flow_manager:
-                    success = await session_transcript_manager.extract_and_store_call_data(flow_manager)
-                    if success:
-                        logger.success(f"✅ Call data extracted and stored for session: {session_id}")
+                    current_agent = flow_manager.state.get("current_agent", "unknown")
+                    logger.info(f"📊 Extracting call data for session: {session_id} | Agent: {current_agent}")
+
+                    if current_agent == "info":
+                        # INFO AGENT: Use Supabase storage via call_data_extractor
+                        logger.info("🟠 INFO AGENT call - routing to Supabase storage")
+
+                        call_extractor = flow_manager.state.get("call_extractor")
+                        if call_extractor:
+                            success = await call_extractor.save_to_database(flow_manager.state)
+                            if success:
+                                logger.success(f"✅ Info agent call data saved to Supabase for session: {session_id}")
+                            else:
+                                logger.error(f"❌ Failed to save info agent call data to Supabase: {session_id}")
+                        else:
+                            logger.error("❌ No call_extractor found in flow_manager.state for info agent")
+
+                    else:
+                        # BOOKING AGENT (or unknown/router): Use Azure Blob Storage via transcript_manager
+                        logger.info(f"🟢 BOOKING AGENT call - routing to Azure Blob Storage")
+
+                        session_transcript_manager = get_transcript_manager(session_id)
+                        success = await session_transcript_manager.extract_and_store_call_data(flow_manager)
+                        if success:
+                            logger.success(f"✅ Booking agent call data saved to Azure for session: {session_id}")
+                        else:
+                            logger.error(f"❌ Failed to save booking agent call data to Azure: {session_id}")
+                else:
+                    logger.warning(f"⚠️ No flow_manager found for session: {session_id}")
+
             except Exception as e:
                 logger.error(f"❌ Error during call data extraction: {e}")
+                import traceback
+                traceback.print_exc()
 
             # Cleanup transcript
             cleanup_transcript_manager(session_id)
