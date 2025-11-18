@@ -17,7 +17,8 @@ async def call_escalation_api(
     sentiment: str,
     action: str,
     duration: str,
-    service: str
+    service: str,
+    call_id: str = None
 ) -> bool:
     """
     Call bridge escalation API to transfer call to human operator
@@ -32,6 +33,7 @@ async def call_escalation_api(
         action: transfer
         duration: Duration in seconds (as string)
         service: Service code 1-5 (as string)
+        call_id: Session/call ID from flow_manager.state (required for bridge)
 
     Returns:
         bool: True if escalation API call succeeded, False otherwise
@@ -39,17 +41,38 @@ async def call_escalation_api(
     Note: WebSocket closes automatically regardless of return value
     """
     try:
+        if not call_id:
+            logger.error("❌ call_id is required for escalation API")
+            return False
+
         # Prepare payload for bridge escalation endpoint
+        # Bridge expects: {"message": {"call": {"id": "..."}, "toolCallList": [...]}}
         payload = {
-            "summary": summary[:250],  # Ensure max 250 chars
-            "sentiment": sentiment,
-            "action": action,
-            "duration": duration,
-            "service": service
+            "message": {
+                "call": {
+                    "id": call_id  # This is the session_id used by bridge
+                },
+                "toolCallList": [
+                    {
+                        "id": "transfer_tool_call",
+                        "type": "function",
+                        "function": {
+                            "name": "request_transfer",
+                            "arguments": {
+                                "summary": summary[:250],
+                                "sentiment": sentiment,
+                                "action": action,
+                                "duration": duration,
+                                "service": service
+                            }
+                        }
+                    }
+                ]
+            }
         }
 
         logger.info(f"Calling escalation API: {ESCALATION_API_URL}")
-        logger.info(f"Escalation data: summary_len={len(summary)}, sentiment={sentiment}, "
+        logger.info(f"Escalation data: call_id={call_id}, summary_len={len(summary)}, sentiment={sentiment}, "
                    f"action={action}, duration={duration}s, service={service}")
 
         timeout = aiohttp.ClientTimeout(total=10)

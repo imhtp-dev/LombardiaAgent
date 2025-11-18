@@ -170,7 +170,8 @@ async def handle_transfer_escalation(
             sentiment=analysis["sentiment"],
             action="transfer",
             duration=str(analysis["duration_seconds"]),
-            service=analysis["service"]
+            service=analysis["service"],
+            call_id=session_id  # Pass session_id to bridge for escalation
         )
 
         # Store analysis for Supabase (happens after WebSocket closes)
