@@ -573,6 +573,49 @@ async def websocket_endpoint(websocket: WebSocket):
         import traceback
         traceback.print_exc()
     finally:
+        # Extract and store call data before cleanup
+        # Route to appropriate storage based on which agent handled the call
+        # DUPLICATE LOGIC: Also in event handlers, but MUST be in finally block too
+        # because event handlers don't always fire (e.g., escalation transfers)
+        try:
+            current_agent = flow_manager.state.get("current_agent", "unknown")
+            logger.info(f"📊 [FINALLY BLOCK] Extracting call data for session: {session_id} | Agent: {current_agent}")
+
+            if current_agent == "info":
+                # INFO AGENT: Use Supabase storage via call_data_extractor
+                logger.info("🟠 [FINALLY BLOCK] INFO AGENT call - routing to Supabase storage")
+
+                call_extractor = flow_manager.state.get("call_extractor")
+                if call_extractor:
+                    # ✅ CRITICAL: Mark call end time before saving
+                    call_extractor.end_call()
+                    success = await call_extractor.save_to_database(flow_manager.state)
+                    if success:
+                        logger.success(f"✅ [FINALLY BLOCK] Info agent call data saved to Supabase for session: {session_id}")
+                    else:
+                        logger.error(f"❌ [FINALLY BLOCK] Failed to save info agent call data to Supabase: {session_id}")
+                else:
+                    logger.error("❌ [FINALLY BLOCK] No call_extractor found in flow_manager.state for info agent")
+
+            else:
+                # BOOKING AGENT (or unknown/router): Use Azure Blob Storage via transcript_manager
+                logger.info(f"🟢 [FINALLY BLOCK] BOOKING AGENT call - routing to Azure Blob Storage")
+
+                session_transcript_manager = get_transcript_manager(session_id)
+                success = await session_transcript_manager.extract_and_store_call_data(flow_manager)
+                if success:
+                    logger.success(f"✅ [FINALLY BLOCK] Booking agent call data saved to Azure for session: {session_id}")
+                else:
+                    logger.error(f"❌ [FINALLY BLOCK] Failed to save booking agent call data to Azure: {session_id}")
+
+        except Exception as e:
+            logger.error(f"❌ [FINALLY BLOCK] Error during call data extraction: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Clear transcript session and cleanup
+        cleanup_transcript_manager(session_id)
+
         # Cleanup sessions (COPIED FROM APP.PY)
         if session_id in active_sessions:
             del active_sessions[session_id]
