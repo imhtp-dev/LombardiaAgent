@@ -72,5 +72,5 @@ HEALTHCHECK --interval=15s --timeout=10s --start-period=5s --retries=3 \
 
 EXPOSE $PORT
 
-# Optimized uvicorn with timeout settings
-CMD ["python", "-m", "uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--loop", "uvloop", "--backlog", "2048", "--limit-concurrency", "10", "--timeout-keep-alive", "30"]
+# Optimized uvicorn with timeout settings (14 concurrent calls per agent = 42 total capacity)
+CMD ["python", "-m", "uvicorn", "bot:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--loop", "uvloop", "--backlog", "2048", "--limit-concurrency", "14", "--timeout-keep-alive", "30"]
