@@ -160,6 +160,9 @@ async def handle_transfer_escalation(
         logger.info(f"   Service: {analysis['service']}")
         logger.info(f"   Duration: {analysis['duration_seconds']}s")
 
+        # Get stream_sid from flow state (Talkdesk stream ID)
+        stream_sid = flow_manager.state.get("stream_sid", "")
+
         # Call escalation API (WebSocket closes automatically)
         logger.info("📞 Calling bridge escalation API...")
 
@@ -171,7 +174,8 @@ async def handle_transfer_escalation(
             action="transfer",
             duration=str(analysis["duration_seconds"]),
             service=analysis["service"],
-            call_id=session_id  # Pass session_id to bridge for escalation
+            call_id=session_id,  # Session ID for database row matching
+            stream_sid=stream_sid  # ✅ Talkdesk stream SID for direct escalation
         )
 
         # Store analysis for Supabase (happens after WebSocket closes)

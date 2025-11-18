@@ -236,6 +236,7 @@ async def websocket_endpoint(websocket: WebSocket):
     session_id = query_params.get("session_id", f"session-{uuid.uuid4().hex[:8]}")
     start_node = query_params.get("start_node", "router")  # Default to unified router
     caller_phone = query_params.get("caller_phone", "")
+    stream_sid = query_params.get("stream_sid", "")  # ✅ Talkdesk stream SID (for escalation)
 
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     logger.info(f"New Healthcare Flow WebSocket Connection")
@@ -243,6 +244,7 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info(f"Business Status: {business_status or 'NOT PROVIDED - ERROR!'}")  # ✅ Log clearly if missing
     logger.info(f"Start Node: {start_node}")
     logger.info(f"Caller Phone: {caller_phone or 'Not provided'}")
+    logger.info(f"Stream SID: {stream_sid or 'Not provided'}")  # ✅ Talkdesk stream ID
     logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     # ✅ Validate business_status is provided
@@ -307,25 +309,6 @@ async def websocket_endpoint(websocket: WebSocket):
         # CREATE TRANSCRIPT PROCESSOR FOR RECORDING CONVERSATIONS
         transcript_processor = TranscriptProcessor()
 
-        # Setup transcript recording event handler
-        @transcript_processor.event_handler("on_transcript_update")
-        async def on_transcript_update(processor, frame):
-            """Handle transcript updates from TranscriptProcessor"""
-            logger.info(f"📝 Transcript update received with {len(frame.messages)} messages")
-
-            # Get session-specific transcript manager
-            session_transcript_manager = get_transcript_manager(session_id)
-
-            for message in frame.messages:
-                logger.info(f"📝 Recording {message.role} message: '{message.content[:50]}{'...' if len(message.content) > 50 else ''}'")
-
-                if message.role == "user":
-                    session_transcript_manager.add_user_message(message.content)
-                elif message.role == "assistant":
-                    session_transcript_manager.add_assistant_message(message.content)
-
-            logger.info(f"📊 Transcript now has {len(session_transcript_manager.conversation_log)} messages")
-
         logger.info("✅ All services initialized")
 
         # CREATE USER IDLE PROCESSOR FOR HANDLING TRANSCRIPTION FAILURES
@@ -380,11 +363,13 @@ async def websocket_endpoint(websocket: WebSocket):
         # CREATE FLOW MANAGER
         flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
 
-        # ✅ Store business_status and session_id in flow manager state (required for system prompt and storage)
+        # ✅ Store business_status, session_id, and stream_sid in flow manager state
         flow_manager.state["business_status"] = business_status
         flow_manager.state["session_id"] = session_id
+        flow_manager.state["stream_sid"] = stream_sid  # ✅ Talkdesk stream SID for escalation
         logger.info(f"✅ Business status stored in flow state: {business_status}")
         logger.info(f"✅ Session ID stored in flow state: {session_id}")
+        logger.info(f"✅ Stream SID stored in flow state: {stream_sid or 'Not provided'}")
 
         # Store caller phone number in flow manager state
         if caller_phone:
@@ -409,7 +394,35 @@ async def websocket_endpoint(websocket: WebSocket):
         from utils.stt_switcher import initialize_stt_switcher
         initialize_stt_switcher(stt, flow_manager)
 
-        # EVENT HANDLERS 
+        # Setup transcript recording event handler (must be AFTER flow_manager creation)
+        @transcript_processor.event_handler("on_transcript_update")
+        async def on_transcript_update(processor, frame):
+            """Handle transcript updates from TranscriptProcessor"""
+            logger.info(f"📝 Transcript update received with {len(frame.messages)} messages")
+
+            # Get session-specific transcript manager (for booking agent)
+            session_transcript_manager = get_transcript_manager(session_id)
+
+            for message in frame.messages:
+                logger.info(f"📝 Recording {message.role} message: '{message.content[:50]}{'...' if len(message.content) > 50 else ''}'")
+
+                # Always add to transcript_manager (needed for both agents)
+                if message.role == "user":
+                    session_transcript_manager.add_user_message(message.content)
+                elif message.role == "assistant":
+                    session_transcript_manager.add_assistant_message(message.content)
+
+                # ALSO add to call_extractor if info agent is active
+                current_agent = flow_manager.state.get("current_agent")
+                if current_agent == "info":
+                    call_extractor_instance = flow_manager.state.get("call_extractor")
+                    if call_extractor_instance:
+                        call_extractor_instance.add_transcript_entry(message.role, message.content)
+                        logger.debug(f"📊 Added to info agent call_extractor: {message.role}")
+
+            logger.info(f"📊 Transcript now has {len(session_transcript_manager.conversation_log)} messages")
+
+        # EVENT HANDLERS
         # Transport event handlers
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport_obj, ws):

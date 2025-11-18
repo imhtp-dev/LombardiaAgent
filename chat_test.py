@@ -96,11 +96,14 @@ class TextInputProcessor(FrameProcessor):
 class TextOutputProcessor(FrameProcessor):
     """
     Processor that captures LLM text output and sends to WebSocket
+    Also records transcript for both transcript_manager and call_extractor
     """
 
-    def __init__(self, websocket: WebSocket):
+    def __init__(self, websocket: WebSocket, session_id: str, flow_manager=None):
         super().__init__()
         self.websocket = websocket
+        self.session_id = session_id
+        self.flow_manager = flow_manager  # Will be set later
         self._buffer = ""
         logger.info("💬 TextOutputProcessor initialized")
 
@@ -125,7 +128,7 @@ class TextOutputProcessor(FrameProcessor):
             except Exception as e:
                 logger.error(f"❌ Failed to send text chunk: {e}")
 
-        # When LLM finishes, send complete message
+        # When LLM finishes, send complete message and record in transcript
         elif isinstance(frame, (LLMFullResponseEndFrame, EndFrame)) and self._buffer:
             try:
                 await self.websocket.send_json({
@@ -133,6 +136,21 @@ class TextOutputProcessor(FrameProcessor):
                     "text": self._buffer
                 })
                 logger.info(f"✅ Complete message sent: {self._buffer[:100]}...")
+
+                # Record assistant message in transcript_manager (for booking agent)
+                from services.transcript_manager import get_transcript_manager
+                session_transcript_manager = get_transcript_manager(self.session_id)
+                session_transcript_manager.add_assistant_message(self._buffer)
+
+                # ALSO add to call_extractor if info agent is active
+                if self.flow_manager:
+                    current_agent = self.flow_manager.state.get("current_agent")
+                    if current_agent == "info":
+                        call_extractor_instance = self.flow_manager.state.get("call_extractor")
+                        if call_extractor_instance:
+                            call_extractor_instance.add_transcript_entry("assistant", self._buffer)
+                            logger.debug(f"📊 Added to info agent call_extractor: assistant")
+
                 self._buffer = ""
             except Exception as e:
                 logger.error(f"❌ Failed to send complete message: {e}")
@@ -902,7 +920,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # CREATE TEXT TRANSPORT SIMULATOR
         text_transport = TextTransportSimulator(websocket)
-        text_output = TextOutputProcessor(websocket)
+        text_output = TextOutputProcessor(websocket, session_id)
 
         # CREATE PIPELINE (TEXT-ONLY - NO STT/TTS!)
         pipeline = Pipeline([
@@ -942,11 +960,16 @@ async def websocket_endpoint(websocket: WebSocket):
         # CREATE FLOW MANAGER
         flow_manager = create_flow_manager(task, llm, context_aggregator, None)
 
-        # Store business_status and session_id in flow manager state (required for info agent)
+        # Set flow_manager reference in text_output processor (for transcript recording)
+        text_output.flow_manager = flow_manager
+
+        # Store business_status, session_id, and stream_sid in flow manager state (required for info agent)
         flow_manager.state["business_status"] = "open"  # Always open for testing
         flow_manager.state["session_id"] = session_id
+        flow_manager.state["stream_sid"] = ""  # Empty for text chat testing (no Talkdesk)
         logger.info(f"✅ Business status stored in flow state: open (testing)")
         logger.info(f"✅ Session ID stored in flow state: {session_id}")
+        logger.info(f"✅ Stream SID: Not applicable (text chat testing)")
 
         # PRE-POPULATE STATE WITH CALLER INFO (Simulate Talkdesk caller ID)
         if global_caller_phone:
@@ -1003,8 +1026,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     if user_text:
                         logger.info(f"💬 User: {user_text}")
 
-                        # Record in transcript
+                        # Record in transcript_manager (for booking agent)
                         session_transcript_manager.add_user_message(user_text)
+
+                        # ALSO add to call_extractor if info agent is active
+                        current_agent = flow_manager.state.get("current_agent")
+                        if current_agent == "info":
+                            call_extractor_instance = flow_manager.state.get("call_extractor")
+                            if call_extractor_instance:
+                                call_extractor_instance.add_transcript_entry("user", user_text)
+                                logger.debug(f"📊 Added to info agent call_extractor: user")
 
                         # Send to pipeline
                         await text_transport.receive_text_message(user_text)

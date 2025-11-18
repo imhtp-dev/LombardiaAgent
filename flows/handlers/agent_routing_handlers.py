@@ -87,8 +87,12 @@ async def route_to_info_handler(
     session_id = flow_manager.state.get("session_id", "unknown")
     from info_agent.services.call_data_extractor import get_call_extractor
     call_extractor = get_call_extractor(session_id)
+
+    # CRITICAL: Override call_id with session_id from bridge (so we update the correct row)
+    call_extractor.call_id = session_id
+
     flow_manager.state["call_extractor"] = call_extractor
-    logger.info(f"📊 State updated: current_agent=info, call_extractor initialized, can_transfer_to_booking=True")
+    logger.info(f"📊 State updated: current_agent=info, call_extractor initialized with call_id={session_id}")
 
     # Import and return info greeting node
     from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node
@@ -188,9 +192,13 @@ async def transfer_from_booking_to_info_handler(
     session_id = flow_manager.state.get("session_id", "unknown")
     from info_agent.services.call_data_extractor import get_call_extractor
     call_extractor = get_call_extractor(session_id)
+
+    # CRITICAL: Override call_id with session_id from bridge (so we update the correct row)
+    call_extractor.call_id = session_id
+
     flow_manager.state["call_extractor"] = call_extractor
 
-    logger.success(f"✅ Transfer complete: BOOKING → INFO (post-completion), call_extractor initialized")
+    logger.success(f"✅ Transfer complete: BOOKING → INFO (post-completion), call_extractor initialized with call_id={session_id}")
 
     # Import and return info greeting node
     from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node
