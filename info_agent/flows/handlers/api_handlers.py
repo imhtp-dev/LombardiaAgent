@@ -29,7 +29,7 @@ async def query_knowledge_base_handler(
 
         if not query:
             logger.warning("⚠️ Empty knowledge base query")
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": False,
                 "error": "No query provided"
@@ -55,7 +55,7 @@ async def query_knowledge_base_handler(
                 )
 
             # Return to greeting node for follow-up
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "query": query,
@@ -116,7 +116,7 @@ async def get_competitive_pricing_handler(
         if missing_params:
             logger.warning(f"⚠️ Missing parameters for competitive pricing: {missing_params}")
             # Return to greeting - LLM will ask for missing params
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": False,
                 "missing_params": missing_params,
@@ -144,7 +144,7 @@ async def get_competitive_pricing_handler(
                 )
 
             # Return to greeting node for follow-up
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "price": result.price,
@@ -191,7 +191,7 @@ async def get_non_competitive_pricing_handler(
         if ecg_under_stress is None:
             logger.warning("⚠️ Missing ECG preference for non-competitive pricing")
             # Return to greeting - LLM will ask
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": False,
                 "missing_params": ["ecg_under_stress"],
@@ -218,7 +218,7 @@ async def get_non_competitive_pricing_handler(
                 )
 
             # Return to greeting node for follow-up
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "price": result.price,
@@ -259,7 +259,7 @@ async def get_exam_by_visit_handler(
 
         if not visit_type:
             logger.warning("⚠️ Missing visit_type for exam list")
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": False,
                 "missing_params": ["visit_type"],
@@ -286,7 +286,7 @@ async def get_exam_by_visit_handler(
                 )
 
             # Return to greeting node for follow-up
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "visit_type": visit_type,
@@ -328,7 +328,7 @@ async def get_exam_by_sport_handler(
 
         if not sport:
             logger.warning("⚠️ Missing sport for exam list")
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": False,
                 "missing_params": ["sport"],
@@ -355,7 +355,7 @@ async def get_exam_by_sport_handler(
                 )
 
             # Return to greeting node for follow-up
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "sport": sport,
@@ -400,7 +400,7 @@ async def get_clinic_info_handler(
         if not query:
             logger.warning("⚠️ Missing query for clinic info")
             # Return to greeting - LLM will ask
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": False,
                 "missing_params": ["query"],
@@ -427,7 +427,7 @@ async def get_clinic_info_handler(
                 )
 
             # Return to greeting node for follow-up
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "query": query,

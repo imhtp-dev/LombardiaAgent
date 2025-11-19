@@ -87,7 +87,7 @@ async def check_followup_handler(
             # Return to greeting node with all tools available
             logger.info("🔄 User needs more help - returning to greeting")
             
-            from info_agent.flows.nodes.greeting import create_greeting_node
+            from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "needs_more_help": True,
                 "action": "continue conversation"

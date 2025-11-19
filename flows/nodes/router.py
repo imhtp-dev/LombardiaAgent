@@ -38,13 +38,14 @@ Listen carefully to the user's request and route them to the info agent.
             "role": "system",
             "content": f"""Greet the caller warmly: 'Ciao, sono Ualà, assistente virtuale di Cerba Healthcare. Come posso aiutarti oggi?'
 
-Then listen to their response and route to info agent for ANY question they have.
-Call route_to_info with the appropriate question_type. For any query you have you must route to info agent with that query.
+Then listen to their response:
+- For casual greetings (hello, hi, hey, ciao) → respond naturally and ask how you can help
+- For actual questions about services, prices, hours, exams → call route_to_info with their exact question
 
 Examples:
-- "Quanto costa un esame del sangue?" → route_to_info (question_type: "pricing")
-- "Che ore siete aperti?" → route_to_info (question_type: "clinic hours")
-- "Devo fare una radiografia" → route_to_info (question_type: "exam info")
+- User: "Ciao" → You: "Ciao! Come posso aiutarti oggi?"
+- User: "Quanto costa un esame del sangue?" → route_to_info(user_query: "Quanto costa un esame del sangue?")
+- User: "Che ore siete aperti?" → route_to_info(user_query: "Che ore siete aperti?")
 
 {settings.language_config}"""
         }],
@@ -69,14 +70,14 @@ Examples:
             FlowsFunctionSchema(
                 name="route_to_info",
                 handler=route_to_info_handler,
-                description="Route to info agent when user wants information about services, prices, clinic hours, exam requirements, documents, or general questions.",
+                description="Route to info agent when user asks actual questions about services, prices, clinic hours, exam requirements, documents, or any healthcare-related questions. Pass their exact question.",
                 properties={
-                    "question_type": {
+                    "user_query": {
                         "type": "string",
-                        "description": "Type of information requested (e.g., 'pricing', 'clinic hours', 'exam requirements', 'documents', 'general info')"
+                        "description": "The exact question the user asked (e.g., 'Quanto costa un esame del sangue?', 'Che ore siete aperti?', 'Devo fare una radiografia')"
                     }
                 },
-                required=["question_type"]
+                required=["user_query"]
             )
         ],
         respond_immediately=True  # Bot speaks first

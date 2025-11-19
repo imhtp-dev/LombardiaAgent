@@ -70,6 +70,6 @@ async def initialize_flow_manager(
 
     # One-shot architecture: Always start with greeting node
     # Greeting node contains ALL 6 API tools - LLM handles everything
-    from info_agent.flows.nodes.greeting import create_greeting_node
+    from info_agent.flows.nodes.conversation import create_greeting_node
     await flow_manager.initialize(create_greeting_node(flow_manager))  # ✅ Pass flow_manager for business_status
     logger.success("✅ One-shot agent flow initialized with greeting node (all 6 tools available)")

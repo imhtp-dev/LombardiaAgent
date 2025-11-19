@@ -57,20 +57,18 @@ async def route_to_info_handler(
 ) -> Tuple[Dict[str, Any], NodeConfig]:
     """
     Route to info agent flow.
-    This is called when:
-    1. User initially requests info from router
-    2. User requests info from booking completion node
+    Called when user asks actual questions from router.
 
     Args:
-        args: Contains question_type (what kind of info they need)
+        args: Contains user_query (the exact question user asked)
         flow_manager: Flow manager instance
 
     Returns:
         Tuple of (result dict, info greeting node)
     """
-    question_type = args.get("question_type", "")
+    user_query = args.get("user_query", "")
 
-    logger.info(f"🟠 Routing to INFO agent | Question type: {question_type}")
+    logger.info(f"🟠 Routing to INFO agent | User query: {user_query}")
 
     # Update state to track current agent
     previous_agent = flow_manager.state.get("current_agent", "router")
@@ -79,9 +77,10 @@ async def route_to_info_handler(
     flow_manager.state["can_transfer_to_booking"] = True  # Info can always transfer to booking
     flow_manager.state["came_from_agent"] = previous_agent
 
-    # Store the question type for context
-    if question_type:
-        flow_manager.state["initial_question_type"] = question_type
+    # ✅ Store user's actual query to preserve it when context is reset
+    if user_query:
+        flow_manager.state["user_initial_query"] = user_query
+        logger.success(f"✅ Stored user query in state: {user_query}")
 
     # Get existing call_extractor (created early in bot.py on_client_connected)
     call_extractor = flow_manager.state.get("call_extractor")
@@ -107,11 +106,11 @@ async def route_to_info_handler(
     logger.info(f"📊 State updated: current_agent=info")
 
     # Import and return info greeting node
-    from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node
+    from info_agent.flows.nodes.conversation import create_greeting_node as create_info_greeting_node
 
     return {
         "routed_to": "info_agent",
-        "question_type": question_type,
+        "user_query": user_query,
         "timestamp": __import__('datetime').datetime.now().isoformat()
     }, create_info_greeting_node(flow_manager)
 
@@ -224,7 +223,7 @@ async def transfer_from_booking_to_info_handler(
     logger.success(f"✅ Transfer complete: BOOKING → INFO (post-completion)")
 
     # Import and return info greeting node
-    from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node
+    from info_agent.flows.nodes.conversation import create_greeting_node as create_info_greeting_node
 
     return {
         "transfer": "booking_to_info",

@@ -1,17 +1,19 @@
 """
-Greeting Node - One-Shot Agent Architecture
-Single conversation node with ALL 6 API tools available.
+Conversation Node - One-Shot Agent Architecture
+Main conversation handler with ALL 6 API tools available.
 LLM handles: intent detection, parameter collection, API calls, and responses.
+Note: Router greets, this node answers questions.
 """
 
 from pipecat_flows import NodeConfig, FlowsFunctionSchema, FlowManager
+from pipecat_flows.types import ContextStrategyConfig, ContextStrategy
 from info_agent.config.settings import info_settings
 from loguru import logger
 
 
 def create_greeting_node(flow_manager: FlowManager = None) -> NodeConfig:
     """
-    One-shot agent greeting node with ALL 6 API tools.
+    Main conversation node with ALL 6 API tools.
 
     Architecture:
     - LLM naturally detects user intent from conversation
@@ -19,7 +21,9 @@ def create_greeting_node(flow_manager: FlowManager = None) -> NodeConfig:
     - LLM calls appropriate API when all params collected
     - Returns to same node after API call (enables follow-up questions)
 
-    No complex flow routing - LLM handles everything via function calling.
+    Context Management:
+    - RESET strategy when entering from router (clears router context)
+    - APPEND strategy (default) when returning from function calls
     """
     from info_agent.flows.handlers.api_handlers import (
         query_knowledge_base_handler,
@@ -30,75 +34,61 @@ def create_greeting_node(flow_manager: FlowManager = None) -> NodeConfig:
         get_clinic_info_handler
     )
     from info_agent.flows.handlers.transfer_handlers import request_transfer_handler
-    # 🚫 BOOKING DISABLED: Commented out for Lombardy release
-    # from flows.handlers.agent_routing_handlers import transfer_from_info_to_booking_handler
 
-    # ✅ Get business_status from flow state (passed from TalkDesk via bridge)
+    # ✅ Get business_status and user_query from flow state
     business_status = None
+    user_query = ""
+    use_reset_strategy = False
+
     if flow_manager:
         business_status = flow_manager.state.get("business_status")
+        user_query = flow_manager.state.get("user_initial_query", "")
 
-    # ✅ Validate and log business_status
+        # ✅ If user_query exists, we're coming from router → use RESET
+        if user_query:
+            logger.success(f"✅ User query from router: {user_query}")
+            flow_manager.state.pop("user_initial_query", None)  # Clear to prevent re-injection
+            logger.debug("🗑️ Cleared user_initial_query from state")
+            use_reset_strategy = True
+            logger.info("🔄 Using RESET strategy (coming from router)")
+        else:
+            logger.info("➕ Using APPEND strategy (returning from function call)")
+
+    # ✅ Validate business_status
     if not business_status:
         logger.error("❌ CRITICAL: business_status not found in flow_manager.state!")
         logger.error("   Transfer behavior will be incorrect - defaulting to 'close' (safe fallback)")
-        business_status = "close"  # Safe fallback - no transfers when unsure
+        business_status = "close"
     else:
         logger.success(f"✅ Business status loaded from flow state: {business_status.upper()}")
 
-    return NodeConfig(
-        name="greeting",
-        role_messages=[
-            {
-                "role": "system",
-                "content": info_settings.get_system_prompt(business_status)  # ✅ Dynamic prompt with business_status
-            }
-        ],
-        task_messages=[
-            {
-                "role": "system",
-                "content": f"""You are Ualà, Cerba Healthcare's information assistant.
+    # Build task message - minimal, just user query injection
+    # All instructions are in settings.py system prompt
+    task_message = f"""User asked: "{user_query}" """ if user_query else ""
 
-Your task: Warmly greet callers and help them with medical information using ONLY the available functions.
-
-Communication style:
-- Greet warmly in {info_settings.agent_config['language']}
-- Ask ONE question at a time
-- Collect parameters naturally through conversation
-- Call functions ONLY when all required parameters are collected
-- After providing information, ask if they need more help
-
-CRITICAL RULES:
-1. NEVER use your own knowledge - ALWAYS use functions
-2. For clinic info (hours/closures), call get_clinic_info with user's natural language query
-3. Collect pricing parameters step-by-step: age → gender → sport → region
-4. If information not found, offer transfer to human operator
-5. Stay in conversation loop for follow-up questions
-
-Available tools:
-- query_knowledge_base: FAQs, documents, forms, preparation
-- get_competitive_pricing: Agonistic visit prices (needs: age, gender, sport, region)
-- get_non_competitive_pricing: Non-agonistic prices (needs: ecg_under_stress)
-- get_exam_by_visit: Exam list by visit code (A1-A3, B1-B5)
-- get_exam_by_sport: Exam list by sport name
-- get_clinic_info: Hours, closures, blood times, doctors (needs: natural language query with location)
-- request_transfer: Transfer to human operator when needed (including BOOKING REQUESTS)
-
-IMPORTANT: For booking appointments, transfer to HUMAN OPERATOR using request_transfer with reason='booking request'"""
-            }
-        ],
-        functions=[
+    # Build base config parameters
+    base_config = {
+        "name": "greeting",
+        "role_messages": [{
+            "role": "system",
+            "content": info_settings.get_system_prompt(business_status)
+        }],
+        "task_messages": [{
+            "role": "system",
+            "content": task_message
+        }],
+        "functions": [
             # ================================================================
             # TOOL 1: Knowledge Base Query
             # ================================================================
             FlowsFunctionSchema(
                 name="query_knowledge_base",
                 handler=query_knowledge_base_handler,
-                description="Search knowledge base for FAQs, documents, forms, preparation instructions, general medical information about Cerba Healthcare services",
+                description="Search knowledge base for FAQs, documents, forms, preparation instructions, and general medical information",
                 properties={
                     "query": {
                         "type": "string",
-                        "description": "Natural language question to search in knowledge base (e.g., 'Quali documenti servono per visita sportiva?', 'Preparazione esami sangue')"
+                        "description": "Natural language question to search in knowledge base"
                     }
                 },
                 required=["query"]
@@ -199,39 +189,28 @@ IMPORTANT: For booking appointments, transfer to HUMAN OPERATOR using request_tr
             ),
 
             # ================================================================
-            # TOOL 7: Transfer to Booking Agent - DISABLED FOR LOMBARDY
-            # ================================================================
-            # 🚫 BOOKING AGENT DISABLED FOR LOMBARDY RELEASE
-            # When user wants to book, transfer to HUMAN OPERATOR instead
-            # To re-enable: Uncomment this function
-            # FlowsFunctionSchema(
-            #     name="transfer_to_booking_agent",
-            #     handler=transfer_from_info_to_booking_handler,
-            #     description="Transfer to booking agent when user wants to book an appointment or medical service. Use when user mentions booking, prenota, appointment, visita, esame, or wants to schedule any medical service.",
-            #     properties={
-            #         "user_request": {
-            #             "type": "string",
-            #             "description": "What the user wants to book (e.g., 'blood test', 'cardiology visit', 'X-ray', 'sports medical examination')"
-            #         }
-            #     },
-            #     required=["user_request"]
-            # ),
-
-            # ================================================================
             # TOOL 7: Transfer to Human Operator
             # ================================================================
             FlowsFunctionSchema(
                 name="request_transfer",
                 handler=request_transfer_handler,
-                description="Transfer call to human operator. Use when: user wants to BOOK appointments, information not found in functions, user explicitly requests human assistance, SSN/agreement questions, or cannot help with available tools.",
+                description="Transfer call to human operator when needed",
                 properties={
                     "reason": {
                         "type": "string",
-                        "description": "Reason for transfer (e.g., 'booking request', 'information not found', 'user request', 'SSN question', 'technical issue')"
+                        "description": "Reason for transfer"
                     }
                 },
                 required=["reason"]
             )
         ],
-        respond_immediately=True  # ✅ Bot speaks first when conversation starts
-    )
+        "respond_immediately": True
+    }
+
+    # ✅ Add context_strategy conditionally
+    if use_reset_strategy:
+        base_config["context_strategy"] = ContextStrategyConfig(
+            strategy=ContextStrategy.RESET  # Clear router context on first entry
+        )
+
+    return NodeConfig(**base_config)
