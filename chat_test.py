@@ -41,6 +41,7 @@ from loguru import logger
 
 # FastAPI
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from contextlib import asynccontextmanager
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -55,19 +56,22 @@ from pipecat.frames.frames import (
     EndFrame,
     StartFrame,
     UserStartedSpeakingFrame,
-    UserStoppedSpeakingFrame
+    UserStoppedSpeakingFrame,
+    MetricsFrame
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.observers.base_observer import BaseObserver
+from pipecat.metrics.metrics import LLMUsageMetricsData
 
 # Import your existing components and flows
 from config.settings import settings
 from services.config import config
 from pipeline.components import create_llm_service, create_context_aggregator
-from flows.manager import create_flow_manager, initialize_flow_manager
+from flows.manager import initialize_flow_manager
 from services.transcript_manager import get_transcript_manager, cleanup_transcript_manager
 
 # Load environment variables
@@ -142,14 +146,12 @@ class TextOutputProcessor(FrameProcessor):
                 session_transcript_manager = get_transcript_manager(self.session_id)
                 session_transcript_manager.add_assistant_message(self._buffer)
 
-                # ALSO add to call_extractor if info agent is active
+                # ALSO add to call_extractor (ALWAYS - Lombardy mode uses info agent only)
                 if self.flow_manager:
-                    current_agent = self.flow_manager.state.get("current_agent")
-                    if current_agent == "info":
-                        call_extractor_instance = self.flow_manager.state.get("call_extractor")
-                        if call_extractor_instance:
-                            call_extractor_instance.add_transcript_entry("assistant", self._buffer)
-                            logger.debug(f"📊 Added to info agent call_extractor: assistant")
+                    call_extractor_instance = self.flow_manager.state.get("call_extractor")
+                    if call_extractor_instance:
+                        call_extractor_instance.add_transcript_entry("assistant", self._buffer)
+                        logger.debug(f"📊 Added to call_extractor: assistant")
 
                 self._buffer = ""
             except Exception as e:
@@ -223,11 +225,147 @@ class TextTransportSimulator(FrameProcessor):
         self._running = False
 
 
+class LLMUsageMetricsObserver(BaseObserver):
+    """
+    Observer to capture LLM token usage metrics and increment call_extractor token count.
+    Monitors MetricsFrame for LLMUsageMetricsData and updates the token counter.
+    """
+
+    def __init__(self, flow_manager):
+        super().__init__()
+        self.flow_manager = flow_manager
+        logger.info("🔢 LLMUsageMetricsObserver initialized")
+
+    async def on_push_frame(
+        self,
+        src: FrameProcessor,
+        dst: FrameProcessor,
+        frame: Frame,
+        direction: FrameDirection,
+        timestamp: int,
+    ):
+        """Capture LLM usage metrics when MetricsFrame is pushed"""
+        # Check if this is a MetricsFrame
+        if isinstance(frame, MetricsFrame):
+            # Iterate through metrics data
+            for metric in frame.data:
+                # Check if this is LLM usage metrics
+                if isinstance(metric, LLMUsageMetricsData):
+                    usage = metric.value
+                    total_tokens = usage.total_tokens
+
+                    logger.info(f"🔢 LLM Token Usage Captured:")
+                    logger.info(f"   Processor: {metric.processor}")
+                    logger.info(f"   Model: {metric.model}")
+                    logger.info(f"   Prompt tokens: {usage.prompt_tokens}")
+                    logger.info(f"   Completion tokens: {usage.completion_tokens}")
+                    logger.info(f"   Total tokens: {total_tokens}")
+
+                    # Increment call_extractor token count
+                    call_extractor = self.flow_manager.state.get("call_extractor")
+                    if call_extractor:
+                        call_extractor.increment_tokens(total_tokens)
+                        logger.info(f"✅ Updated call_extractor total tokens: {call_extractor.llm_token_count}")
+                    else:
+                        logger.warning("⚠️ call_extractor not found in flow_manager.state")
+
+
+async def report_to_talkdesk(flow_manager, call_extractor):
+    """
+    Report call completion to Talkdesk (ONLY if not transferred to human operator).
+
+    Args:
+        flow_manager: FlowManager instance with state
+        call_extractor: CallDataExtractor instance with call data
+
+    Returns:
+        bool: True if successfully sent to Talkdesk, False otherwise
+    """
+    try:
+        # Check 1: Was call transferred to human operator?
+        if flow_manager.state.get("transfer_requested"):
+            logger.info("⏭️ Skipping Talkdesk report - call was transferred to human operator")
+            return False
+
+        # Check 2: Do we have interaction_id?
+        interaction_id = flow_manager.state.get("interaction_id")
+        if not interaction_id:
+            logger.warning("⚠️ No interaction_id - cannot report to Talkdesk")
+            return False
+
+        logger.info(f"📤 Preparing Talkdesk report for interaction: {interaction_id}")
+
+        # Get analysis data (reuse if available from transfer preparation)
+        analysis = flow_manager.state.get("transfer_analysis")
+
+        if not analysis:
+            logger.info("🔍 No pre-computed analysis, running LLM analysis for Talkdesk report")
+            transcript_text = call_extractor._generate_transcript_text()
+            analysis = await call_extractor._analyze_call_with_llm(
+                transcript_text,
+                flow_manager.state
+            )
+        else:
+            logger.info("✅ Using pre-computed analysis from transfer preparation")
+
+        # Build Talkdesk payload
+        call_data = {
+            "interaction_id": interaction_id,
+            "sentiment": analysis.get("sentiment", "neutral"),
+            "service": str(analysis.get("service", "5")),
+            "summary": analysis.get("summary", "")[:250],  # Max 250 chars
+            "duration_seconds": int(call_extractor._calculate_duration() or 0)
+        }
+
+        logger.info(f"📊 Talkdesk payload prepared:")
+        logger.info(f"   Interaction ID: {call_data['interaction_id']}")
+        logger.info(f"   Sentiment: {call_data['sentiment']}")
+        logger.info(f"   Service: {call_data['service']}")
+        logger.info(f"   Duration: {call_data['duration_seconds']}s")
+        logger.info(f"   Summary: {call_data['summary'][:100]}...")
+
+        # Send to Talkdesk
+        from talkdesk_hangup import send_to_talkdesk
+        success = send_to_talkdesk(call_data)
+
+        if success:
+            logger.success(f"✅ Talkdesk report sent successfully for interaction: {interaction_id}")
+        else:
+            logger.error(f"❌ Talkdesk report failed for interaction: {interaction_id}")
+
+        return success
+
+    except Exception as e:
+        logger.error(f"❌ Error reporting to Talkdesk: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
+
+
+# Lifespan context manager for startup and shutdown events
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events"""
+    # Startup
+    from info_agent.api.database import db
+    logger.info("🚀 Initializing Supabase database connection pool...")
+    await db.connect()
+    logger.success("✅ Supabase database initialized for chat_test.py")
+
+    yield
+
+    # Shutdown
+    logger.info("🛑 Closing Supabase database connection pool...")
+    await db.close()
+    logger.info("✅ Database connection closed")
+
+
 # FastAPI app
 app = FastAPI(
     title="Healthcare Flow Bot - Text Chat Testing",
     description="Text-only chat interface for rapid testing",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS configuration
@@ -246,24 +384,6 @@ active_sessions: Dict[str, Any] = {}
 global_start_node = "router"  # Default to unified router
 global_caller_phone = None
 global_patient_dob = None
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database connection pool on startup"""
-    from info_agent.api.database import db
-    logger.info("🚀 Initializing Supabase database connection pool...")
-    await db.connect()
-    logger.success("✅ Supabase database initialized for chat_test.py")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Close database connection pool on shutdown"""
-    from info_agent.api.database import db
-    logger.info("🛑 Closing Supabase database connection pool...")
-    await db.close()
-    logger.info("✅ Database connection closed")
 
 
 @app.get("/")
@@ -957,7 +1077,21 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("  5. Context Aggregator (Assistant)")
         logger.info("✅ NO STT/TTS - Pure text mode for fast testing!")
 
-        # Create pipeline task
+        # START PER-CALL LOGGING
+        from services.call_logger import CallLogger
+        session_call_logger = CallLogger(session_id)
+        log_file = session_call_logger.start_call_logging(session_id, "text_chat_test")
+        logger.info(f"📁 Text chat logging started: {log_file}")
+
+        # CREATE FLOW MANAGER (TEMPORARY - will be replaced after task creation)
+        # We need a placeholder flow_manager for the observer during initialization
+        from flows.manager import FlowManager
+        flow_manager_placeholder = type('obj', (object,), {'state': {}})()  # Minimal placeholder with state dict
+
+        # Create LLM token usage observer with placeholder
+        token_observer = LLMUsageMetricsObserver(flow_manager_placeholder)
+
+        # Create pipeline task with token tracking enabled
         # CRITICAL: Disable idle_timeout for text-only chat to prevent premature disconnections
         # In text mode, there are no BotSpeakingFrame events, so idle detection triggers incorrectly
         task = PipelineTask(
@@ -965,18 +1099,22 @@ async def websocket_endpoint(websocket: WebSocket):
             params=PipelineParams(
                 allow_interruptions=False,  # Not needed for text
                 enable_transcriptions=False,  # No audio transcription
+                enable_usage_metrics=True,  # ✅ ENABLE TOKEN TRACKING
             ),
+            observers=[token_observer],  # ✅ ATTACH OBSERVER
             cancel_on_idle_timeout=False  # MUST be direct parameter to PipelineTask, not in params!
         )
 
-        # START PER-CALL LOGGING
-        from services.call_logger import CallLogger
-        session_call_logger = CallLogger(session_id)
-        log_file = session_call_logger.start_call_logging(session_id, "text_chat_test")
-        logger.info(f"📁 Text chat logging started: {log_file}")
+        # NOW create the real FlowManager with all parameters
+        flow_manager = FlowManager(
+            task=task,
+            llm=llm,
+            context_aggregator=context_aggregator,
+            transport=None  # No transport for text mode
+        )
 
-        # CREATE FLOW MANAGER
-        flow_manager = create_flow_manager(task, llm, context_aggregator, None)
+        # Update observer to use the real flow_manager
+        token_observer.flow_manager = flow_manager
 
         # Set flow_manager reference in text_output processor (for transcript recording)
         text_output.flow_manager = flow_manager
@@ -1006,6 +1144,14 @@ async def websocket_endpoint(websocket: WebSocket):
         session_transcript_manager = get_transcript_manager(session_id)
         session_transcript_manager.start_session(session_id)
         logger.info(f"📝 Started transcript recording for session: {session_id}")
+
+        # Initialize call_extractor for info agent (to capture ALL messages from start)
+        from info_agent.services.call_data_extractor import get_call_extractor
+        call_extractor = get_call_extractor(session_id)
+        call_extractor.call_id = session_id
+        call_extractor.interaction_id = "d2568ef3-b8c9-4cbc-ac90-6100d4c0e8c0"
+        flow_manager.state["call_extractor"] = call_extractor
+        logger.info(f"📊 Call extractor initialized (will capture all messages from start)")
 
         # Store session
         active_sessions[session_id] = {
@@ -1051,13 +1197,11 @@ async def websocket_endpoint(websocket: WebSocket):
                         # Record in transcript_manager (for booking agent)
                         session_transcript_manager.add_user_message(user_text)
 
-                        # ALSO add to call_extractor if info agent is active
-                        current_agent = flow_manager.state.get("current_agent")
-                        if current_agent == "info":
-                            call_extractor_instance = flow_manager.state.get("call_extractor")
-                            if call_extractor_instance:
-                                call_extractor_instance.add_transcript_entry("user", user_text)
-                                logger.debug(f"📊 Added to info agent call_extractor: user")
+                        # ALSO add to call_extractor (ALWAYS - Lombardy mode uses info agent only)
+                        call_extractor_instance = flow_manager.state.get("call_extractor")
+                        if call_extractor_instance:
+                            call_extractor_instance.add_transcript_entry("user", user_text)
+                            logger.debug(f"📊 Added to call_extractor: user")
 
                         # Send to pipeline
                         await text_transport.receive_text_message(user_text)
@@ -1101,6 +1245,9 @@ async def websocket_endpoint(websocket: WebSocket):
                             success = await call_extractor.save_to_database(flow_manager.state)
                             if success:
                                 logger.success(f"✅ Info agent call data saved to Supabase for session: {session_id}")
+
+                                # Report to Talkdesk (only if not transferred to human operator)
+                                await report_to_talkdesk(flow_manager, call_extractor)
                             else:
                                 logger.error(f"❌ Failed to save info agent call data to Supabase: {session_id}")
                         else:

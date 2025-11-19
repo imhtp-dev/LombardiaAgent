@@ -30,7 +30,8 @@ def create_greeting_node(flow_manager: FlowManager = None) -> NodeConfig:
         get_clinic_info_handler
     )
     from info_agent.flows.handlers.transfer_handlers import request_transfer_handler
-    from flows.handlers.agent_routing_handlers import transfer_from_info_to_booking_handler
+    # 🚫 BOOKING DISABLED: Commented out for Lombardy release
+    # from flows.handlers.agent_routing_handlers import transfer_from_info_to_booking_handler
 
     # ✅ Get business_status from flow state (passed from TalkDesk via bridge)
     business_status = None
@@ -81,8 +82,9 @@ Available tools:
 - get_exam_by_visit: Exam list by visit code (A1-A3, B1-B5)
 - get_exam_by_sport: Exam list by sport name
 - get_clinic_info: Hours, closures, blood times, doctors (needs: natural language query with location)
-- transfer_to_booking_agent: Transfer to booking agent when user wants to book appointment
-- request_transfer: Transfer to human operator when needed"""
+- request_transfer: Transfer to human operator when needed (including BOOKING REQUESTS)
+
+IMPORTANT: For booking appointments, transfer to HUMAN OPERATOR using request_transfer with reason='booking request'"""
             }
         ],
         functions=[
@@ -197,32 +199,35 @@ Available tools:
             ),
 
             # ================================================================
-            # TOOL 7: Transfer to Booking Agent
+            # TOOL 7: Transfer to Booking Agent - DISABLED FOR LOMBARDY
             # ================================================================
-            FlowsFunctionSchema(
-                name="transfer_to_booking_agent",
-                handler=transfer_from_info_to_booking_handler,
-                description="Transfer to booking agent when user wants to book an appointment or medical service. Use when user mentions booking, prenota, appointment, visita, esame, or wants to schedule any medical service.",
-                properties={
-                    "user_request": {
-                        "type": "string",
-                        "description": "What the user wants to book (e.g., 'blood test', 'cardiology visit', 'X-ray', 'sports medical examination')"
-                    }
-                },
-                required=["user_request"]
-            ),
+            # 🚫 BOOKING AGENT DISABLED FOR LOMBARDY RELEASE
+            # When user wants to book, transfer to HUMAN OPERATOR instead
+            # To re-enable: Uncomment this function
+            # FlowsFunctionSchema(
+            #     name="transfer_to_booking_agent",
+            #     handler=transfer_from_info_to_booking_handler,
+            #     description="Transfer to booking agent when user wants to book an appointment or medical service. Use when user mentions booking, prenota, appointment, visita, esame, or wants to schedule any medical service.",
+            #     properties={
+            #         "user_request": {
+            #             "type": "string",
+            #             "description": "What the user wants to book (e.g., 'blood test', 'cardiology visit', 'X-ray', 'sports medical examination')"
+            #         }
+            #     },
+            #     required=["user_request"]
+            # ),
 
             # ================================================================
-            # TOOL 8: Transfer to Human Operator
+            # TOOL 7: Transfer to Human Operator
             # ================================================================
             FlowsFunctionSchema(
                 name="request_transfer",
                 handler=request_transfer_handler,
-                description="Transfer call to human operator. Use when: information not found in functions, user explicitly requests human assistance, SSN/agreement questions, or cannot help with available tools. NOTE: For booking appointments, use transfer_to_booking_agent instead.",
+                description="Transfer call to human operator. Use when: user wants to BOOK appointments, information not found in functions, user explicitly requests human assistance, SSN/agreement questions, or cannot help with available tools.",
                 properties={
                     "reason": {
                         "type": "string",
-                        "description": "Reason for transfer (e.g., 'information not found', 'user request', 'SSN question', 'technical issue')"
+                        "description": "Reason for transfer (e.g., 'booking request', 'information not found', 'user request', 'SSN question', 'technical issue')"
                     }
                 },
                 required=["reason"]

@@ -60,7 +60,7 @@ class KnowledgeBaseService:
                         {
                             "toolCallId": "pipecat_knowledge_base",
                             "function": {
-                                "name": "query_new",
+                                "name": "knowledge_base",
                                 "arguments": json.dumps({"query": question})
                             }
                         }
@@ -93,9 +93,31 @@ class KnowledgeBaseService:
                     )
 
                 # Extract the knowledge base data from results[0]["result"]
-                # Note: result is a dict object (not JSON string)
+                # Note: Lombardy API returns result as a STRING (not dict)
                 kb_data = results[0].get("result", {})
 
+                # Handle Lombardy format: result is a plain string (the answer itself)
+                if isinstance(kb_data, str):
+                    if not kb_data:
+                        logger.warning("⚠️ API returned empty string")
+                        return KnowledgeBaseResult(
+                            answer="",
+                            confidence=0.0,
+                            success=False,
+                            error="Empty result string"
+                        )
+
+                    # String response = successful answer from Lombardy API
+                    logger.success(f"✅ Knowledge base returned answer (Lombardy format - string)")
+                    logger.debug(f"📚 Answer preview: {kb_data[:200]}...")
+                    return KnowledgeBaseResult(
+                        answer=kb_data,
+                        confidence=1.0,  # Lombardy doesn't provide confidence, assume high
+                        source="Lombardy Knowledge Base",
+                        success=True
+                    )
+
+                # Handle dict format (other regions)
                 if not kb_data:
                     logger.warning("⚠️ API returned empty knowledge base data")
                     return KnowledgeBaseResult(

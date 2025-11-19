@@ -83,26 +83,28 @@ async def route_to_info_handler(
     if question_type:
         flow_manager.state["initial_question_type"] = question_type
 
-    # Initialize call_extractor for info agent (Supabase storage)
-    session_id = flow_manager.state.get("session_id", "unknown")
-    from info_agent.services.call_data_extractor import get_call_extractor
-    call_extractor = get_call_extractor(session_id)
+    # Get existing call_extractor (created early in bot.py on_client_connected)
+    call_extractor = flow_manager.state.get("call_extractor")
 
-    # CRITICAL: Override call_id with session_id from bridge (so we update the correct row)
-    call_extractor.call_id = session_id
+    if call_extractor:
+        # ✅ Start the call to initialize started_at timestamp (for duration calculation)
+        caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+        interaction_id = flow_manager.state.get("interaction_id", "")
+        call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+        logger.info(f"📊 Using existing call_extractor (already capturing router messages)")
+    else:
+        # Fallback: Create call_extractor if not found (shouldn't happen in bot.py)
+        logger.warning("⚠️ call_extractor not found in state, creating new one (router messages may be lost)")
+        session_id = flow_manager.state.get("session_id", "unknown")
+        from info_agent.services.call_data_extractor import get_call_extractor
+        call_extractor = get_call_extractor(session_id)
+        call_extractor.call_id = session_id
+        caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+        interaction_id = flow_manager.state.get("interaction_id", "")
+        call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+        flow_manager.state["call_extractor"] = call_extractor
 
-    # ✅ CRITICAL: Start the call to initialize started_at timestamp (for duration calculation)
-    caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
-    interaction_id = flow_manager.state.get("interaction_id", "")
-    call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
-
-    # ✅ CRITICAL: Add the initial user message to transcript (first message from router)
-    if question_type:
-        call_extractor.add_transcript_entry("user", question_type)
-        logger.info(f"📝 Added initial user message to transcript: {question_type[:50]}...")
-
-    flow_manager.state["call_extractor"] = call_extractor
-    logger.info(f"📊 State updated: current_agent=info, call_extractor initialized with call_id={session_id}")
+    logger.info(f"📊 State updated: current_agent=info")
 
     # Import and return info greeting node
     from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node
@@ -198,27 +200,28 @@ async def transfer_from_booking_to_info_handler(
     if user_question:
         flow_manager.state["post_booking_question"] = user_question
 
-    # Initialize call_extractor for info agent (Supabase storage)
-    session_id = flow_manager.state.get("session_id", "unknown")
-    from info_agent.services.call_data_extractor import get_call_extractor
-    call_extractor = get_call_extractor(session_id)
+    # Get existing call_extractor (created early in bot.py on_client_connected)
+    call_extractor = flow_manager.state.get("call_extractor")
 
-    # CRITICAL: Override call_id with session_id from bridge (so we update the correct row)
-    call_extractor.call_id = session_id
+    if call_extractor:
+        # ✅ Start the call to initialize started_at timestamp (for duration calculation)
+        caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+        interaction_id = flow_manager.state.get("interaction_id", "")
+        call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+        logger.info(f"📊 Using existing call_extractor (already capturing previous messages)")
+    else:
+        # Fallback: Create call_extractor if not found (shouldn't happen in bot.py)
+        logger.warning("⚠️ call_extractor not found in state, creating new one (booking messages may be lost)")
+        session_id = flow_manager.state.get("session_id", "unknown")
+        from info_agent.services.call_data_extractor import get_call_extractor
+        call_extractor = get_call_extractor(session_id)
+        call_extractor.call_id = session_id
+        caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
+        interaction_id = flow_manager.state.get("interaction_id", "")
+        call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
+        flow_manager.state["call_extractor"] = call_extractor
 
-    # ✅ CRITICAL: Start the call to initialize started_at timestamp (for duration calculation)
-    caller_phone = flow_manager.state.get("caller_phone_from_talkdesk", "")
-    interaction_id = flow_manager.state.get("interaction_id", "")
-    call_extractor.start_call(caller_phone=caller_phone, interaction_id=interaction_id)
-
-    # ✅ CRITICAL: Add the initial user question to transcript (first message after booking)
-    if user_question:
-        call_extractor.add_transcript_entry("user", user_question)
-        logger.info(f"📝 Added post-booking user question to transcript: {user_question[:50]}...")
-
-    flow_manager.state["call_extractor"] = call_extractor
-
-    logger.success(f"✅ Transfer complete: BOOKING → INFO (post-completion), call_extractor initialized with call_id={session_id}")
+    logger.success(f"✅ Transfer complete: BOOKING → INFO (post-completion)")
 
     # Import and return info greeting node
     from info_agent.flows.nodes.greeting import create_greeting_node as create_info_greeting_node

@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 from loguru import logger
 from openai import AsyncOpenAI
-
+from info_agent.config.settings import info_settings
 from info_agent.api.database import db
 
 # OpenAI client - will be initialized lazily when needed
@@ -283,7 +283,7 @@ class CallDataExtractor:
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",  # Same as conversation
                 messages=[
-                    {"role": "system", "content": "You are a call analysis expert. Reply only with valid JSON."},
+                    {"role": "system", "content": f"You are a call analysis expert. Always generate output in {info_settings.agent_config['language']}. Reply only with valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
