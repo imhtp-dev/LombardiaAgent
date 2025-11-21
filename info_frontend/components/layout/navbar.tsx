@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,13 +12,45 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, User, ChevronDown } from "lucide-react";
+import { getCurrentUser, authApi } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
 
 export function Navbar() {
-  const [userName] = useState("Mario Rossi");
+  const router = useRouter();
+  const [userName, setUserName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [userRole, setUserRole] = useState<string>("Master");
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleLogout = () => {
-    // Simulate logout - replace with actual logout later
-    window.location.href = "/login";
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (user) {
+      setUserName(user.name);
+      setUserEmail(user.email);
+
+      // Map role to display text
+      if (user.role === "admin" || user.region === "master") {
+        setUserRole("Master");
+      } else if (user.region === "Lombardia") {
+        setUserRole("Lombardia");
+      } else {
+        setUserRole(user.region || "Operator");
+      }
+    }
+    setIsLoading(false);
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } catch (err) {
+      console.error("Logout error:", err);
+    } finally {
+      // Clear local storage
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('user');
+      router.push("/login");
+    }
   };
 
   return (
@@ -38,8 +70,10 @@ export function Navbar() {
               />
             </div>
             <div className="hidden sm:flex flex-col items-start">
-              <span className="text-sm font-medium">{userName}</span>
-              <span className="text-xs text-muted-foreground">Master</span>
+              <span className="text-sm font-medium">
+                {isLoading ? "Caricamento..." : userName || "Utente"}
+              </span>
+              <span className="text-xs text-muted-foreground">{userRole}</span>
             </div>
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           </Button>
@@ -47,9 +81,11 @@ export function Navbar() {
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
-              <p className="text-sm font-medium leading-none">{userName}</p>
+              <p className="text-sm font-medium leading-none">
+                {isLoading ? "Caricamento..." : userName || "Utente"}
+              </p>
               <p className="text-xs leading-none text-muted-foreground">
-                master@voila.com
+                {userEmail || ""}
               </p>
             </div>
           </DropdownMenuLabel>

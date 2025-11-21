@@ -53,7 +53,7 @@ import {
   Loader2
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
-import { dashboardApi, type DashboardStats, type Region, type CallListResponse, type CallItem } from "@/lib/api-client";
+import { dashboardApi, type DashboardStats, type Region, type CallListResponse, type CallItem, type TrendDataPoint, type CallOutcomeStats } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
@@ -73,6 +73,12 @@ export default function DashboardPage() {
   const [actionStats, setActionStats] = useState<Array<{ action: string; count: number; avg_duration?: number; color: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // New state for additional charts
+  const [outcomeTrendData, setOutcomeTrendData] = useState<Array<{ date: string; COMPLETATA: number; TRASFERITA: number; "NON COMPLETATA": number }>>([]);
+  const [sentimentTrendData, setSentimentTrendData] = useState<Array<{ date: string; positive: number; neutral: number; negative: number }>>([]);
+  const [motivazioneStats, setMotivazioneStats] = useState<Array<{ motivazione: string; count: number; color: string }>>([]);
+  const [esitoStats, setEsitoStats] = useState<Array<{ esito: string; count: number; color: string }>>([]);
 
   // Load initial data
   useEffect(() => {
@@ -144,6 +150,71 @@ export default function DashboardPage() {
         color: actionColors[idx % actionColors.length]
       })));
 
+      // Load outcome trend data
+      const outcomeTrendResponse = await dashboardApi.getCallOutcomeTrend({
+        region: selectedRegion,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      });
+
+      // Transform outcome trend data for line chart
+      const outcomeByDate: Record<string, { COMPLETATA: number; TRASFERITA: number; "NON COMPLETATA": number }> = {};
+      outcomeTrendResponse.data.forEach((item: any) => {
+        if (!outcomeByDate[item.date]) {
+          outcomeByDate[item.date] = { COMPLETATA: 0, TRASFERITA: 0, "NON COMPLETATA": 0 };
+        }
+        if (item.esito_chiamata) {
+          outcomeByDate[item.date][item.esito_chiamata as keyof typeof outcomeByDate[typeof item.date]] = item.count;
+        }
+      });
+      setOutcomeTrendData(Object.keys(outcomeByDate).sort().map(date => ({ date, ...outcomeByDate[date] })));
+
+      // Load sentiment trend data
+      const sentimentTrendResponse = await dashboardApi.getSentimentTrend({
+        region: selectedRegion,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      });
+
+      // Transform sentiment trend data for line chart
+      const sentimentByDate: Record<string, { positive: number; neutral: number; negative: number }> = {};
+      sentimentTrendResponse.data.forEach((item: any) => {
+        if (!sentimentByDate[item.date]) {
+          sentimentByDate[item.date] = { positive: 0, neutral: 0, negative: 0 };
+        }
+        if (item.sentiment) {
+          sentimentByDate[item.date][item.sentiment as keyof typeof sentimentByDate[typeof item.date]] = item.count;
+        }
+      });
+      setSentimentTrendData(Object.keys(sentimentByDate).sort().map(date => ({ date, ...sentimentByDate[date] })));
+
+      // Load call outcome stats for motivazione and esito pie charts
+      const outcomeStats = await dashboardApi.getCallOutcomeStats({
+        region: selectedRegion,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+      });
+
+      // Map motivazione stats with colors (using correct field name: motivation_stats)
+      const motivazioneColors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
+      setMotivazioneStats((outcomeStats.motivation_stats || []).map((m: { motivazione: string; count: number }, idx: number) => ({
+        motivazione: m.motivazione,
+        count: m.count,
+        color: motivazioneColors[idx % motivazioneColors.length]
+      })));
+
+      // Map esito stats with specific colors (using correct field name: outcome_stats)
+      const esitoColors: Record<string, string> = {
+        "COMPLETATA": "#10b981",
+        "TRASFERITA": "#f59e0b",
+        "NON COMPLETATA": "#ef4444"
+      };
+      setEsitoStats((outcomeStats.outcome_stats || []).map((e: { esito_chiamata: string; count: number }) => ({
+        esito: e.esito_chiamata,
+        count: e.count,
+        color: esitoColors[e.esito_chiamata] || "#6b7280"
+      })));
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Errore nel caricamento dei dati";
       setError(errorMessage);
@@ -166,8 +237,17 @@ export default function DashboardPage() {
   };
 
   const handleViewCall = async (call: CallItem) => {
-    setSelectedCall(call);
-    setIsModalOpen(true);
+    try {
+      // Fetch full call details including summary and transcript from backend
+      const callDetails = await dashboardApi.getCallSummary(call.call_id || "");
+      setSelectedCall({ ...call, ...callDetails });
+      setIsModalOpen(true);
+    } catch (error) {
+      console.error("Error fetching call details:", error);
+      // Fallback to basic data if API call fails
+      setSelectedCall(call);
+      setIsModalOpen(true);
+    }
   };
 
   const totalPages = calls?.pagination.total_pages || 1;
@@ -366,8 +446,147 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Charts Row */}
-      {sentimentStats.length > 0 || actionStats.length > 0 ? (
+      {/* Line Charts Row - Trends Over Time */}
+      {(outcomeTrendData.length > 0 || sentimentTrendData.length > 0) && (
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Esito Chiamata Trend */}
+          {outcomeTrendData.length > 0 && (
+            <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-blue-50 to-blue-100">
+                    <BarChart3 className="h-5 w-5 text-blue-600" />
+                  </div>
+                  Andamento Esito Chiamate
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-6">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={outcomeTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#6b7280"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <YAxis
+                      stroke="#6b7280"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                      }}
+                    />
+                    <Legend
+                      wrapperStyle={{ paddingTop: '20px' }}
+                      formatter={(value) => <span className="text-sm font-medium text-gray-700">{value}</span>}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="COMPLETATA"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={{ fill: '#10b981', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="TRASFERITA"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      dot={{ fill: '#f59e0b', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="NON COMPLETATA"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      dot={{ fill: '#ef4444', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Sentiment Trend */}
+          {sentimentTrendData.length > 0 && (
+            <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-purple-50 to-purple-100">
+                    <TrendingUp className="h-5 w-5 text-purple-600" />
+                  </div>
+                  Andamento Sentiment
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-6">
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={sentimentTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#6b7280"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <YAxis
+                      stroke="#6b7280"
+                      style={{ fontSize: '12px' }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                      }}
+                    />
+                    <Legend
+                      wrapperStyle={{ paddingTop: '20px' }}
+                      formatter={(value) => <span className="text-sm font-medium text-gray-700 capitalize">{value}</span>}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="positive"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      dot={{ fill: '#10b981', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="neutral"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      dot={{ fill: '#3b82f6', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="negative"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      dot={{ fill: '#ef4444', r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Pie Charts Row */}
+      {sentimentStats.length > 0 || actionStats.length > 0 || motivazioneStats.length > 0 || esitoStats.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {sentimentStats.length > 0 && (
             <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
@@ -391,6 +610,7 @@ export default function DashboardPage() {
                       outerRadius={85}
                       fill="#8884d8"
                       dataKey="count"
+                      nameKey="sentiment"
                       strokeWidth={2}
                       stroke="#fff"
                     >
@@ -398,27 +618,33 @@ export default function DashboardPage() {
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
                         padding: '8px 12px',
                         boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                       }}
                     />
-                    <Legend 
-                      verticalAlign="bottom" 
+                    <Legend
+                      verticalAlign="bottom"
                       height={36}
                       formatter={(value) => <span className="text-sm font-medium text-gray-700 capitalize">{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
+                <div className="text-center mt-4 pt-4 border-t border-gray-100">
+                  <p className="text-sm font-semibold text-gray-600">
+                    {sentimentStats.reduce((sum, item) => sum + item.count, 0)} chiamate totali
+                  </p>
+                </div>
               </CardContent>
             </Card>
           )}
 
-          {actionStats.length > 0 && (
+          {/* Distribuzione Azioni Chart - Commented out */}
+          {/* {actionStats.length > 0 && (
             <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
@@ -440,6 +666,7 @@ export default function DashboardPage() {
                       outerRadius={85}
                       fill="#8884d8"
                       dataKey="count"
+                      nameKey="action"
                       strokeWidth={2}
                       stroke="#fff"
                     >
@@ -447,22 +674,129 @@ export default function DashboardPage() {
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
                         padding: '8px 12px',
                         boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
                       }}
                     />
-                    <Legend 
-                      verticalAlign="bottom" 
+                    <Legend
+                      verticalAlign="bottom"
                       height={36}
                       formatter={(value) => <span className="text-sm font-medium text-gray-700 capitalize">{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )} */}
+
+          {/* Motivazione Distribution */}
+          {motivazioneStats.length > 0 && (
+            <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-amber-50 to-amber-100">
+                    <MessageCircle className="h-5 w-5 text-amber-600" />
+                  </div>
+                  Distribuzione Motivazioni
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-6">
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie
+                      data={motivazioneStats}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={false}
+                      outerRadius={85}
+                      fill="#8884d8"
+                      dataKey="count"
+                      nameKey="motivazione"
+                      strokeWidth={2}
+                      stroke="#fff"
+                    >
+                      {motivazioneStats.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                      }}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={36}
+                      formatter={(value) => <span className="text-sm font-medium text-gray-700">{value}</span>}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Esito Chiamata Distribution */}
+          {esitoStats.length > 0 && (
+            <Card className="border border-gray-200/60 shadow-sm hover:shadow-lg transition-all duration-300">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-gradient-to-br from-green-50 to-green-100">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                  </div>
+                  Distribuzione Esito Chiamate
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-6">
+                <ResponsiveContainer width="100%" height={240}>
+                  <PieChart>
+                    <Pie
+                      data={esitoStats}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={false}
+                      outerRadius={85}
+                      fill="#8884d8"
+                      dataKey="count"
+                      nameKey="esito"
+                      strokeWidth={2}
+                      stroke="#fff"
+                    >
+                      {esitoStats.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        padding: '8px 12px',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                      }}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={36}
+                      formatter={(value) => <span className="text-sm font-medium text-gray-700">{value}</span>}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="text-center mt-4 pt-4 border-t border-gray-100">
+                  <p className="text-sm font-semibold text-gray-600">
+                    {esitoStats.reduce((sum, item) => sum + item.count, 0)} chiamate totali
+                  </p>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -633,27 +967,10 @@ export default function DashboardPage() {
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="summary" className="space-y-4 mt-4">
-                <div className="space-y-3 bg-gray-50 p-4 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <strong className="text-sm">Call ID:</strong>
-                    <code className="text-sm bg-white px-2 py-1 rounded">{selectedCall.call_id || "N/A"}</code>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <strong className="text-sm">Durata:</strong>
-                    <span className="text-sm">{selectedCall.duration_seconds}s</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <strong className="text-sm">Telefono:</strong>
-                    <span className="text-sm font-mono">{selectedCall.phone_number || "N/A"}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <strong className="text-sm">Azione:</strong>
-                    {getActionBadge(selectedCall.action)}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <strong className="text-sm">Sentiment:</strong>
-                    {getSentimentBadge(selectedCall.sentiment)}
-                  </div>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <pre className="text-sm whitespace-pre-wrap">
+                    {(selectedCall as any).summary || "Nessun summary disponibile"}
+                  </pre>
                 </div>
               </TabsContent>
               <TabsContent value="intent" className="space-y-4 mt-4">
@@ -670,9 +987,9 @@ export default function DashboardPage() {
               </TabsContent>
               <TabsContent value="transcript" className="space-y-4 mt-4">
                 <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-sm text-muted-foreground font-mono">
-                    Transcript completo disponibile per chiamate con registrazione.
-                  </p>
+                  <pre className="text-sm whitespace-pre-wrap font-mono">
+                    {(selectedCall as any).transcript || "Nessun transcript disponibile"}
+                  </pre>
                 </div>
               </TabsContent>
             </Tabs>

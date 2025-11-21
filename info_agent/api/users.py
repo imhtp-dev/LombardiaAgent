@@ -154,14 +154,14 @@ async def list_users(current_user: dict = Depends(get_current_user_from_token)):
             name_parts = user['name'].split(' ', 1)
             nome = name_parts[0] if name_parts else ""
             cognome = name_parts[1] if len(name_parts) > 1 else ""
-            
+
             user_list.append(UserResponse(
                 user_id=user['user_id'],
                 email=user['email'],
                 nome=nome,
                 cognome=cognome,
-                ruolo=user['region'],  # Display region as ruolo
-                region=user['region'],
+                ruolo=user['role'],  # ✅ FIXED: Use role column, not region
+                region=user['region'],  # Can be NULL for admin (sees all regions)
                 is_active=user['is_active'],
                 created_at=user['created_at'],
                 updated_at=user['updated_at']
@@ -206,14 +206,14 @@ async def get_user(
         name_parts = user['name'].split(' ', 1)
         nome = name_parts[0] if name_parts else ""
         cognome = name_parts[1] if len(name_parts) > 1 else ""
-        
+
         return UserResponse(
             user_id=user['user_id'],
             email=user['email'],
             nome=nome,
             cognome=cognome,
-            ruolo=user['region'],
-            region=user['region'],
+            ruolo=user['role'],  # ✅ FIXED: Use role column, not region
+            region=user['region'],  # Can be NULL for admin (sees all regions)
             is_active=user['is_active'],
             created_at=user['created_at'],
             updated_at=user['updated_at']

@@ -44,10 +44,10 @@ def initialize_ai_services():
         if pinecone_api_key:
             pinecone_client = Pinecone(api_key=pinecone_api_key)
             pinecone_index = pinecone_client.Index(
-                "sportmedcine",
-                host="https://sportmedcine-eqvpxqp.svc.aped-4627-b74a.pinecone.io"
+                "knowledgecerba",
+                host="https://knowledgecerba-eqvpxqp.svc.apu-57e2-42f6.pinecone.io"
             )
-            logger.info("✅ Pinecone client initialized")
+            logger.info("✅ Pinecone client initialized (knowledgecerba)")
         else:
             logger.warning("⚠️ PINECONE_API_KEY not set")
         
@@ -140,7 +140,7 @@ async def save_to_pinecone(qa_id: int, question: str, answer: str, region: str) 
             'metadata': {
                 'question': question,
                 'answer': answer,
-                'region': region,
+                'regione': region,  # Pinecone uses 'regione' (Italian), Supabase uses 'region'
                 'qa_id': qa_id,
                 'created_at': get_italy_time_naive().isoformat()
             }
@@ -273,19 +273,34 @@ async def generate_next_id_domanda() -> str:
 # ==================== Q&A Endpoints ====================
 
 @router.get("/region/{region}", response_model=List[QAItem])
-async def get_qa_by_region(region: str):
+async def get_qa_by_region(
+    region: str,
+    current_user: dict = Depends(get_current_user_from_token)
+):
     """
     Get all Q&A entries for a specific region
-    
+
     Args:
         region: Region name
-    
+        current_user: Authenticated user
+
     Returns:
         List of Q&A items
     """
     try:
+        # Enforce region-based access control
+        user_region = current_user.get('region', 'master')
+
+        if user_region and user_region != "master":
+            # Regional users can ONLY access their assigned region
+            if region != user_region:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Non autorizzato ad accedere a questa regione. Sei un utente {user_region} e puoi accedere solo ai dati della regione {user_region}."
+                )
+
         logger.info(f"📋 Getting Q&A for region: {region}")
-        
+
         query = """
         SELECT qa_id, question, answer, region, pinecone_id,
                created_at, updated_at, created_by, updated_by, id_domanda
@@ -293,14 +308,16 @@ async def get_qa_by_region(region: str):
         WHERE region = $1
         ORDER BY updated_at DESC, created_at DESC
         """
-        
+
         results = await db.fetch(query, region)
-        
+
         qa_list = [QAItem(**row) for row in results]
-        
+
         logger.info(f"✅ Found {len(qa_list)} Q&A entries for region {region}")
         return qa_list
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Error fetching Q&A for region {region}: {e}")
         raise HTTPException(
@@ -326,21 +343,31 @@ async def create_qa(
     """
     try:
         user_name = current_user['name']
-        
+        user_region = current_user.get('region', 'master')
+
         logger.info(f"🆕 Creating new Q&A")
         logger.info(f"   Question: {qa_data.question[:50]}...")
         logger.info(f"   Region: {qa_data.region}")
         logger.info(f"   Created by: {user_name}")
-        
+
         # Validate
         if not qa_data.question.strip():
             raise HTTPException(status_code=400, detail="La domanda non può essere vuota")
-        
+
         if not qa_data.answer.strip():
             raise HTTPException(status_code=400, detail="La risposta non può essere vuota")
-        
+
         if not qa_data.region.strip():
             raise HTTPException(status_code=400, detail="La regione non può essere vuota")
+
+        # Enforce region-based access control for creation
+        if user_region and user_region != "master":
+            # Regional users can ONLY create Q&A for their assigned region
+            if qa_data.region != user_region:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Non autorizzato a creare Q&A per questa regione. Sei un utente {user_region} e puoi creare solo Q&A per la regione {user_region}."
+                )
         
         # Generate id_domanda
         new_id_domanda = await generate_next_id_domanda()

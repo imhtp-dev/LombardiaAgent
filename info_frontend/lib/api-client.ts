@@ -198,6 +198,24 @@ export interface ClinicalKPIs {
   avg_duration_seconds: number;
 }
 
+export interface TrendDataPoint {
+  date: string;
+  count: number;
+  esito_chiamata?: string;
+  sentiment?: string;
+}
+
+export interface TrendResponse {
+  data: TrendDataPoint[];
+  total_entries: number;
+}
+
+export interface CallOutcomeStats {
+  outcome_stats: Array<{ esito_chiamata: string; count: number }>;
+  motivation_stats: Array<{ motivazione: string; count: number }>;
+  total_calls_with_outcome: number;
+}
+
 // ==================== Helper Functions ====================
 
 function getAuthToken(): string | null {
@@ -422,8 +440,47 @@ export const dashboardApi = {
     if (params?.region) queryParams.append('region', params.region);
     if (params?.start_date) queryParams.append('start_date', params.start_date);
     if (params?.end_date) queryParams.append('end_date', params.end_date);
-    
+
     const url = `${API_BASE_URL}/dashboard/clinical-kpis${queryParams.toString() ? `?${queryParams}` : ''}`;
+    const response = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async getCallOutcomeTrend(params?: { region?: string; start_date?: string; end_date?: string }): Promise<TrendResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.region) queryParams.append('region', params.region);
+    if (params?.start_date) queryParams.append('start_date', params.start_date);
+    if (params?.end_date) queryParams.append('end_date', params.end_date);
+
+    const url = `${API_BASE_URL}/dashboard/call-outcome-trend${queryParams.toString() ? `?${queryParams}` : ''}`;
+    const response = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async getSentimentTrend(params?: { region?: string; start_date?: string; end_date?: string }): Promise<TrendResponse> {
+    const queryParams = new URLSearchParams();
+    if (params?.region) queryParams.append('region', params.region);
+    if (params?.start_date) queryParams.append('start_date', params.start_date);
+    if (params?.end_date) queryParams.append('end_date', params.end_date);
+
+    const url = `${API_BASE_URL}/dashboard/sentiment-trend${queryParams.toString() ? `?${queryParams}` : ''}`;
+    const response = await fetch(url, {
+      headers: getAuthHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  async getCallOutcomeStats(params?: { region?: string; start_date?: string; end_date?: string }): Promise<CallOutcomeStats> {
+    const queryParams = new URLSearchParams();
+    if (params?.region) queryParams.append('region', params.region);
+    if (params?.start_date) queryParams.append('start_date', params.start_date);
+    if (params?.end_date) queryParams.append('end_date', params.end_date);
+
+    const url = `${API_BASE_URL}/dashboard/call-outcome-stats${queryParams.toString() ? `?${queryParams}` : ''}`;
     const response = await fetch(url, {
       headers: getAuthHeaders(),
     });

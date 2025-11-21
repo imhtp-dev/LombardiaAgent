@@ -48,7 +48,7 @@ class UserResponse(BaseModel):
     nome: str
     cognome: str
     ruolo: str
-    region: str
+    region: Optional[str] = None  # NULL for admin (can see all regions)
     is_active: bool
     created_at: datetime
     updated_at: datetime

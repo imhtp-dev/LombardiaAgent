@@ -158,13 +158,6 @@ export default function LoginPage() {
                 "Accedi"
               )}
             </Button>
-
-            <div className="text-center">
-              <p className="text-xs text-gray-500">
-                Demo: <span className="font-medium text-gray-700">demo@voila.com</span> / 
-                <span className="font-medium text-gray-700"> demo</span>
-              </p>
-            </div>
           </form>
         </div>
       </div>

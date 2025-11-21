@@ -43,6 +43,7 @@ class CallDataExtractor:
         self.llm_token_count = 0
         self.functions_called = []  # ✅ NEW - Track function calls
         self.assistant_id = os.getenv("INFO_AGENT_ASSISTANT_ID", "pipecat-info-lombardy-001")  # ✅ From env
+        self.region = os.getenv("INFO_AGENT_REGION", "Lombardia")  # ✅ Region for filtering
         self.caller_phone = None
         self.interaction_id = None
 
@@ -579,6 +580,7 @@ class CallDataExtractor:
                 "call_id": self.call_id,
                 "phone_number": phone_number,
                 "assistant_id": self.assistant_id,
+                "region": self.region,  # ✅ ADD region
                 "started_at": self.started_at.isoformat() if self.started_at else None,
                 "ended_at": self.ended_at.isoformat() if self.ended_at else None,
                 "duration_seconds": duration_seconds,
@@ -600,19 +602,20 @@ class CallDataExtractor:
             UPDATE tb_stat SET
                 phone_number = $2,
                 assistant_id = $3,
-                started_at = $4,
-                ended_at = $5,
-                duration_seconds = $6,
-                action = $7,
-                sentiment = $8,
-                esito_chiamata = $9,
-                motivazione = $10,
-                patient_intent = $11,
-                transcript = $12,
-                summary = $13,
-                cost = $14,
-                llm_token = $15,
-                service = $16,
+                region = $4,
+                started_at = $5,
+                ended_at = $6,
+                duration_seconds = $7,
+                action = $8,
+                sentiment = $9,
+                esito_chiamata = $10,
+                motivazione = $11,
+                patient_intent = $12,
+                transcript = $13,
+                summary = $14,
+                cost = $15,
+                llm_token = $16,
+                service = $17,
                 updated_at = CURRENT_TIMESTAMP
             WHERE call_id = $1
             """
@@ -622,6 +625,7 @@ class CallDataExtractor:
                 self.call_id,
                 phone_number,
                 self.assistant_id,
+                self.region,  # ✅ ADD region parameter
                 self.started_at,
                 self.ended_at,
                 duration_seconds,

@@ -15,19 +15,27 @@ from loguru import logger
 
 # ==================== Password Utilities ====================
 
-def generate_password(length: int = 12) -> str:
+def generate_password(length: int = 7) -> str:
     """
-    Generate a secure random password
+    Generate a secure random password with special characters
     
     Args:
-        length: Password length (default: 12)
+        length: Password length (default: 7)
     
     Returns:
-        Random password string
+        Random password string with at least 1 special character
     """
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-    password = ''.join(secrets.choice(alphabet) for _ in range(length))
-    return password
+    
+    # Ensure at least one special character
+    password = secrets.choice("!@#$%^&*")  # Start with a special char
+    password += ''.join(secrets.choice(alphabet) for _ in range(length - 1))
+    
+    # Shuffle to randomize position of special character
+    password_list = list(password)
+    secrets.SystemRandom().shuffle(password_list)
+    
+    return ''.join(password_list)
 
 
 def hash_password(password: str) -> str:

@@ -276,9 +276,7 @@ export default function UtentiPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="master">Master User</SelectItem>
-                    <SelectItem value="Piemonte">Piemonte User</SelectItem>
                     <SelectItem value="Lombardia">Lombardia User</SelectItem>
-                    <SelectItem value="Veneto">Veneto User</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -343,9 +341,7 @@ export default function UtentiPage() {
               <SelectContent>
                 <SelectItem value="all">Tutti i ruoli</SelectItem>
                 <SelectItem value="master">Master</SelectItem>
-                <SelectItem value="Piemonte">Piemonte</SelectItem>
                 <SelectItem value="Lombardia">Lombardia</SelectItem>
-                <SelectItem value="Veneto">Veneto</SelectItem>
               </SelectContent>
             </Select>
           </div>

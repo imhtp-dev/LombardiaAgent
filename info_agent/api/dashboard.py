@@ -3,12 +3,13 @@ Dashboard statistics endpoints (from Pipecat call data)
 All data comes from PostgreSQL tables: tb_stat, tb_voice_agent, pipecat_sessions
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from loguru import logger
 
 from .database import db
+from .auth import get_current_user_from_token
 from .models import (
     DashboardStats,
     CallListResponse,
@@ -29,40 +30,7 @@ router = APIRouter()
 
 
 # ==================== Helper Functions ====================
-
-async def get_assistant_id_by_region(region: str) -> Optional[str]:
-    """
-    Get assistant_id for a specific region
-    
-    Args:
-        region: Region name or "All Region"
-    
-    Returns:
-        Assistant ID or None for "All Region"
-    """
-    try:
-        if region == "All Region":
-            return None
-        
-        query = """
-        SELECT assistant_id
-        FROM tb_voice_agent
-        WHERE regione = $1
-        LIMIT 1
-        """
-        
-        result = await db.fetchrow(query, region)
-        
-        if result:
-            logger.info(f"✅ Found assistant_id {result['assistant_id']} for region {region}")
-            return result['assistant_id']
-        else:
-            logger.warning(f"⚠️ No assistant_id found for region {region}")
-            return None
-            
-    except Exception as e:
-        logger.error(f"❌ Error getting assistant_id for region {region}: {e}")
-        return None
+# Note: Helper function removed - now filtering by region column directly in tb_stat
 
 
 # ==================== Dashboard Endpoints ====================
@@ -71,7 +39,8 @@ async def get_assistant_id_by_region(region: str) -> Optional[str]:
 async def get_dashboard_stats(
     region: str = "All Region",
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user_from_token)
 ):
     """
     Get main dashboard statistics
@@ -80,26 +49,34 @@ async def get_dashboard_stats(
         region: Region name or "All Region"
         start_date: Start date filter (YYYY-MM-DD)
         end_date: End date filter (YYYY-MM-DD)
+        current_user: Authenticated user
     
     Returns:
         Dashboard statistics
     """
     try:
-        logger.info(f"📊 Loading dashboard data for region: {region}")
+        # Enforce region-based access control
+        user_region = current_user.get('region', 'master')
+        
+        if user_region and user_region != "master":
+            # Regional users can ONLY see their assigned region
+            region = user_region
+            logger.info(f"📊 Loading dashboard data for regional user (forced to {user_region})")
+        else:
+            # Master users can see all regions
+            logger.info(f"📊 Loading dashboard data for master user (region: {region})")
+        
         if start_date and end_date:
             logger.info(f"📅 Date filter: {start_date} to {end_date}")
-        
-        # Get assistant_id for region
-        assistant_id = await get_assistant_id_by_region(region)
-        
-        # Build WHERE clause
+
+        # Build WHERE clause - filter by region directly
         base_where = "WHERE started_at IS NOT NULL"
         params = []
         param_count = 1
-        
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            params.append(assistant_id)
+
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            params.append(region)
             param_count += 1
         
         # Add date filter if provided
@@ -141,10 +118,10 @@ async def get_dashboard_stats(
             chart_where = "WHERE started_at >= CURRENT_DATE - INTERVAL '6 days' AND started_at IS NOT NULL"
             chart_params = []
             param_count_chart = 1
-        
-        if assistant_id:
-            chart_where += f" AND assistant_id = ${param_count_chart}"
-            chart_params.append(assistant_id)
+
+        if region and region != "All Region":
+            chart_where += f" AND region = ${param_count_chart}"
+            chart_params.append(region)
         
         chart_query = f"""
         SELECT
@@ -247,7 +224,8 @@ async def get_calls(
     offset: int = Query(0, ge=0),
     region: str = "All Region",
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user_from_token)
 ):
     """
     Get paginated list of calls
@@ -258,24 +236,35 @@ async def get_calls(
         region: Region filter
         start_date: Start date filter
         end_date: End date filter
+        current_user: Authenticated user
     
     Returns:
         Paginated call list
     """
     try:
+        # Enforce region-based access control
+        user_region = current_user.get('region', 'master')
+        
+        if user_region and user_region != "master":
+            # Regional users can ONLY see their assigned region
+            region = user_region
+            logger.info(f"📋 Loading calls for regional user (forced to {user_region})")
+        else:
+            logger.info(f"📋 Loading calls for master user (region: {region})")
+        
         logger.info(f"📋 Loading calls (limit: {limit}, offset: {offset}, region: {region})")
         
-        # Get assistant_id for region
-        assistant_id = await get_assistant_id_by_region(region)
+        # Build WHERE clause - filter by region directly
+        
         
         # Build WHERE clause
         base_where = "WHERE started_at IS NOT NULL"
         params = []
         param_count = 1
         
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            params.append(assistant_id)
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            params.append(region)
             param_count += 1
         
         # Add date filter
@@ -386,30 +375,32 @@ async def get_call_summary(call_id: str):
             ended_at,
             patient_intent,
             esito_chiamata,
-            motivazione
+            motivazione,
+            summary,
+            transcript
         FROM tb_stat
         WHERE call_id = $1
         LIMIT 1
         """
-        
+
         call_data = await db.fetchrow(query, call_id)
-        
+
         if not call_data:
             raise HTTPException(status_code=404, detail="Chiamata non trovata")
-        
-        # For now, return basic data (transcript/summary from pipecat_sessions can be added later)
+
+        # Return call data with summary and transcript from Supabase
         return CallSummaryResponse(
             success=True,
             call_id=call_id,
-            summary=call_data['motivazione'] or "Nessun summary disponibile",
-            transcript="Transcript non ancora implementato",  # TODO: Get from pipecat_sessions
+            summary=call_data['summary'] or "Nessun summary disponibile",
+            transcript=call_data['transcript'] or "Nessun transcript disponibile",
             started_at=call_data['started_at'].isoformat() if call_data['started_at'] else None,
             ended_at=call_data['ended_at'].isoformat() if call_data['ended_at'] else None,
             patient_intent=call_data['patient_intent'],
             esito_chiamata=call_data['esito_chiamata'],
             motivazione=call_data['motivazione'],
             has_analysis=bool(call_data['patient_intent']),
-            has_transcript=False  # TODO: Check pipecat_sessions
+            has_transcript=bool(call_data['transcript'])
         )
         
     except HTTPException:
@@ -425,36 +416,37 @@ async def get_call_summary(call_id: str):
 @router.get("/regions", response_model=List[RegionItem])
 async def get_regions():
     """
-    Get list of all available regions
-    
+    Get list of all available regions from actual call data in tb_stat
+
     Returns:
         List of regions
     """
     try:
-        logger.info("🌍 Getting available regions")
-        
+        logger.info("🌍 Getting available regions from call data")
+
+        # Query tb_stat directly instead of tb_voice_agent
         query = """
-        SELECT DISTINCT regione
-        FROM tb_voice_agent
-        WHERE regione IS NOT NULL
-        ORDER BY regione ASC
+        SELECT DISTINCT region
+        FROM tb_stat
+        WHERE region IS NOT NULL
+        ORDER BY region ASC
         """
-        
+
         results = await db.fetch(query)
-        
+
         # Build regions list with "All Region" first
         regions = [{"value": "All Region", "label": "All Region"}]
-        
+
         for row in results:
-            if row['regione']:
+            if row['region']:
                 regions.append({
-                    "value": row['regione'],
-                    "label": row['regione']
+                    "value": row['region'],
+                    "label": row['region']
                 })
-        
+
         logger.info(f"✅ Found {len(regions)-1} unique regions + All Region")
         return regions
-        
+
     except Exception as e:
         logger.error(f"❌ Error getting regions: {e}")
         return [{"value": "All Region", "label": "All Region"}]
@@ -494,7 +486,8 @@ async def get_voice_agents():
 async def get_additional_stats(
     region: str = "All Region",
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user_from_token)
 ):
     """
     Get additional dashboard statistics
@@ -503,14 +496,23 @@ async def get_additional_stats(
         region: Region filter
         start_date: Start date filter
         end_date: End date filter
+        current_user: Authenticated user
     
     Returns:
         Additional statistics (sentiment, action, hourly)
     """
     try:
-        logger.info(f"📈 Loading additional stats for region: {region}")
+        # Enforce region-based access control
+        user_region = current_user.get('region', 'master')
         
-        assistant_id = await get_assistant_id_by_region(region)
+        if user_region and user_region != "master":
+            # Regional users can ONLY see their assigned region
+            region = user_region
+            logger.info(f"📈 Loading additional stats for regional user (forced to {user_region})")
+        else:
+            logger.info(f"📈 Loading additional stats for master user (region: {region})")
+        
+        
         
         # Build base WHERE clause
         if start_date and end_date:
@@ -522,9 +524,9 @@ async def get_additional_stats(
             base_params = []
             param_count = 1
         
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            base_params.append(assistant_id)
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            base_params.append(region)
         
         # Sentiment stats
         sentiment_query = f"""
@@ -591,15 +593,15 @@ async def get_patient_intent_stats(
     try:
         logger.info(f"🎯 Patient intent stats for region: {region}")
         
-        assistant_id = await get_assistant_id_by_region(region)
+        
         
         base_where = "WHERE patient_intent IS NOT NULL AND patient_intent != '' AND patient_intent != 'NULL'"
         params = []
         param_count = 1
         
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            params.append(assistant_id)
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            params.append(region)
             param_count += 1
         
         if start_date and end_date:
@@ -652,15 +654,15 @@ async def get_call_outcome_stats(
     try:
         logger.info(f"📊 Call outcome stats for region: {region}")
         
-        assistant_id = await get_assistant_id_by_region(region)
+        
         
         base_where = "WHERE esito_chiamata IS NOT NULL AND esito_chiamata != '' AND esito_chiamata != 'NULL'"
         params = []
         param_count = 1
         
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            params.append(assistant_id)
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            params.append(region)
             param_count += 1
         
         if start_date and end_date:
@@ -724,15 +726,15 @@ async def get_clinical_kpis(
     try:
         logger.info(f"🏥 Clinical KPIs for region: {region}")
         
-        assistant_id = await get_assistant_id_by_region(region)
+        
         
         base_where = "WHERE started_at IS NOT NULL"
         params = []
         param_count = 1
         
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            params.append(assistant_id)
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            params.append(region)
             param_count += 1
         
         if start_date and end_date:
@@ -802,15 +804,15 @@ async def get_call_outcome_trend(
 ):
     """Get call outcome trend over time"""
     try:
-        assistant_id = await get_assistant_id_by_region(region)
+        
         
         base_where = "WHERE esito_chiamata IS NOT NULL AND esito_chiamata != '' AND esito_chiamata != 'NULL'"
         params = []
         param_count = 1
         
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            params.append(assistant_id)
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            params.append(region)
             param_count += 1
         
         if start_date and end_date:
@@ -851,15 +853,15 @@ async def get_sentiment_trend(
 ):
     """Get sentiment trend over time"""
     try:
-        assistant_id = await get_assistant_id_by_region(region)
+        
         
         base_where = "WHERE sentiment IS NOT NULL AND sentiment != '' AND sentiment != 'NULL'"
         params = []
         param_count = 1
         
-        if assistant_id:
-            base_where += f" AND assistant_id = ${param_count}"
-            params.append(assistant_id)
+        if region and region != "All Region":
+            base_where += f" AND region = ${param_count}"
+            params.append(region)
             param_count += 1
         
         if start_date and end_date:
