@@ -165,7 +165,7 @@ async def send_registration_email(
                     </div>
                     
                     <p>Puoi accedere alla dashboard al seguente link:</p>
-                    <p><a href="https://voilavoicedashboard-cwdhanhzbncgcwd7.francecentral-01.azurewebsites.net" style="color: #667eea;">https://voilavoicedashboard-cwdhanhzbncgcwd7.francecentral-01.azurewebsites.net</a></p>
+                    <p><a href="https://voilavoicedashboardcerba-dzdch8bhcddzdjak.francecentral-01.azurewebsites.net/login" style="color: #667eea;">https://voilavoicedashboardcerba-dzdch8bhcddzdjak.francecentral-01.azurewebsites.net/login</a></p>
                     
                     <p style="margin-top: 30px;">Per la tua sicurezza, ti consigliamo di cambiare la password al primo accesso.</p>
                     
@@ -194,7 +194,7 @@ async def send_registration_email(
         - Password: {password}
         - Ruolo: {ruolo}
         
-        Link dashboard: https://voilavoicedashboard-cwdhanhzbncgcwd7.francecentral-01.azurewebsites.net
+        Link dashboard: https://voilavoicedashboardcerba-dzdch8bhcddzdjak.francecentral-01.azurewebsites.net/login
         
         Per la tua sicurezza, ti consigliamo di cambiare la password al primo accesso.
         
