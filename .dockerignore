@@ -43,6 +43,9 @@ talkdeskbridge/
 # Frontend (moved to separate repository)
 info_frontend/
 
+# External project folders
+BridgeLombardia-main/
+
 # Build artifacts
 build/
 dist/

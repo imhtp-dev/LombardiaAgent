@@ -470,9 +470,10 @@ Same Docker configuration as booking agent.
 
 ### Pricing - Non-Competitive
 
-**Endpoint**: `/get_price_non_agonistic_visit`  
-**Method**: POST  
-**Body**: `{"ecg_under_stress": false}`  
+**Endpoint**: `/lombardia/get_price_non_agonistic_visit_lombardia`
+**Tool Name**: `get_price_non_agonistic_visit` (unchanged for backend compatibility)
+**Method**: POST
+**Body**: `{"ecg_under_stress": false}`
 **Response**: `{"price": 50.0}`  
 
 ### Exam List - By Visit

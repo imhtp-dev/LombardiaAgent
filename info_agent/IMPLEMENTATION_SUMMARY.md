@@ -75,7 +75,8 @@ info_agent/api/
 
 #### 2. Pricing Service
 - **File**: `services/pricing_service.py`
-- **APIs**: `/get_price_agonistic_visit`, `/get_price_non_agonistic_visit`
+- **API Endpoints**: `/lombardia/get_price_agonistic_visit`, `/lombardia/get_price_non_agonistic_visit_lombardia`
+- **Tool Names**: `get_price_agonistic_visit`, `get_price_non_agonistic_visit` (backend compatibility)
 - **Purpose**: Sports medicine visit pricing
 - **Features**: Competitive/non-Agonisticapricing, input validation, error handling
 

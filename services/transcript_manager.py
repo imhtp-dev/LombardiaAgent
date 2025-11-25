@@ -152,7 +152,7 @@ SUMMARY (must in Italian):"""
 
                     # Generate summary using OpenAI
                     response = await client.chat.completions.create(
-                        model="gpt-4-mini",
+                        model="gpt-4.1",
                         messages=[
                             {"role": "system", "content": "You are a professional healthcare call center supervisor. Provide accurate, detailed summaries of healthcare booking conversations."},
                             {"role": "user", "content": summary_prompt}
