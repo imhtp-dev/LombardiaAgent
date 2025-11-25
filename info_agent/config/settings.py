@@ -21,8 +21,8 @@ class InfoAgentSettings:
     def api_endpoints(self) -> Dict[str, str]:
         """External API endpoints for info agent tools"""
         return {
-            "knowledge_base": os.getenv(
-                "KNOWLEDGE_BASE_URL",
+            "knowledge_base_lombardia": os.getenv(
+                "KNOWLEDGE_BASE_LOMBARDIA_URL",
                 "https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/lombardia/rag_lombardia"
             ),
             "exam_by_visit": os.getenv(
@@ -33,16 +33,16 @@ class InfoAgentSettings:
                 "EXAM_BY_SPORT_URL",
                 "https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/get_list_exam_by_sport"
             ),
-            "price_non_agonistic": os.getenv(
-                "PRICE_NON_AGONISTIC_URL",
+            "get_price_non_agonistic_visit_lombardia": os.getenv(
+                "PRICE_NON_AGONISTIC_LOMBARDIA_URL",
                 "https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/lombardia/get_price_non_agonistic_visit_lombardia"
             ),
             "price_agonistic": os.getenv(
                 "PRICE_AGONISTIC_URL",
                 "https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/lombardia/get_price_agonistic_visit"
             ),
-            "call_graph": os.getenv(
-                "CALL_GRAPH_URL",
+            "call_graph_lombardia": os.getenv(
+                "CALL_GRAPH_LOMBARDIA_URL",
                 "https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/lombardia/graph_lombardia"
             )
         }

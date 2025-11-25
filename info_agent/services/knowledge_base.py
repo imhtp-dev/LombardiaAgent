@@ -27,7 +27,7 @@ class KnowledgeBaseService:
     """Service for querying Cerba Healthcare knowledge base"""
     
     def __init__(self):
-        self.api_url = info_settings.api_endpoints["knowledge_base"]
+        self.api_url = info_settings.api_endpoints["knowledge_base_lombardia"]
         self.timeout = info_settings.api_timeout
         self.session: Optional[aiohttp.ClientSession] = None
         logger.info(f"📚 Knowledge Base Service initialized: {self.api_url}")
@@ -58,9 +58,9 @@ class KnowledgeBaseService:
                 "message": {
                     "toolCallList": [
                         {
-                            "toolCallId": "pipecat_knowledge_base",
+                            "toolCallId": "pipecat_knowledge_base_lombardia",
                             "function": {
-                                "name": "knowledge_base",
+                                "name": "knowledge_base_lombardia",
                                 "arguments": json.dumps({"query": question})
                             }
                         }

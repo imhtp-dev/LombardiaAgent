@@ -267,21 +267,13 @@ app.add_middleware(
 )
 
 # ==================== REGISTER API ROUTERS ====================
-# Import and register dashboard API routers
-from info_agent.api import auth, users, qa, dashboard, chat
+# Import and register chat API router (other endpoints migrated to Supabase Edge Functions)
+from info_agent.api import chat
 
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(users.router, prefix="/api/users", tags=["Users"])
-app.include_router(qa.router, prefix="/api/qa", tags=["Q&A Management"])
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 
-logger.info("✅ Dashboard API routers registered")
-logger.info("   - /api/auth/* - Authentication endpoints")
-logger.info("   - /api/users/* - User management")
-logger.info("   - /api/qa/* - Q&A management")
-logger.info("   - /api/dashboard/* - Dashboard statistics")
-logger.info("   - /api/chat/* - Chat endpoints")
+logger.info("✅ Chat API router registered")
+logger.info("   - /api/chat/* - Chat endpoints (other APIs now in Supabase Edge Functions)")
 
 # Store for active sessions
 active_sessions: Dict[str, Any] = {}
