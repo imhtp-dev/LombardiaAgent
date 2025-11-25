@@ -87,7 +87,7 @@ class Settings:
         """OpenAI LLM configuration"""
         return {
             "api_key": self.api_keys["openai"],
-            "model": "gpt-4.1-mini"
+            "model": "gpt-4.1"
         }
     
 
@@ -119,7 +119,7 @@ class Settings:
     def llm_interpretation_config(self) -> Dict[str, Any]:
         """LLM interpretation configuration for sorting API analysis"""
         return {
-            "model": "gpt-4o-mini",  # Fast and cost-effective
+            "model": "gpt-4.1",  # Full GPT-4.1 model
             "temperature": 0.1,  # Low temperature for consistent, deterministic logic
             "max_tokens": 500,  # Enough for reasoning and analysis
             "timeout": 15.0  # 15 second timeout for reliability

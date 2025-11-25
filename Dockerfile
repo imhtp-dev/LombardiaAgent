@@ -56,7 +56,7 @@ COPY services/ ./services/
 COPY utils/ ./utils/
 COPY data/ ./data/
 COPY info_agent/ ./info_agent/
-COPY bot.py extractCF.py ./
+COPY bot.py ./
 
 # Create non-root user and set permissions
 RUN groupadd -r pipecat && useradd -r -g pipecat pipecat && \

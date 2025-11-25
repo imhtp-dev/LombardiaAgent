@@ -282,7 +282,7 @@ class CallDataExtractor:
             # Call OpenAI with same model as conversation (lazy initialization)
             client = get_openai_client()
             response = await client.chat.completions.create(
-                model="gpt-4o-mini",  # Same as conversation
+                model="gpt-4.1",  # Full GPT-4.1 model
                 messages=[
                     {"role": "system", "content": f"You are a call analysis expert. Always generate output in {info_settings.agent_config['language']}. Reply only with valid JSON."},
                     {"role": "user", "content": prompt}

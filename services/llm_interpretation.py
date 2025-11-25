@@ -169,7 +169,7 @@ Based on the ANALYSIS RULES provided, determine:
         logger.debug("🔄 Calling OpenAI API for interpretation...")
 
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",  # Fast and cost-effective
+            model="gpt-4.1",  # Full GPT-4.1 model
             temperature=0.1,  # Low temperature for consistent logic
             max_tokens=500,
             timeout=15.0,  # 15 second timeout
