@@ -35,7 +35,7 @@ class InfoAgentSettings:
             ),
             "price_non_agonistic": os.getenv(
                 "PRICE_NON_AGONISTIC_URL",
-                "https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/get_price_non_agonistic_visit"
+                "https://voilavoiceagent-cyf2e9bshnguaebh.westeurope-01.azurewebsites.net/lombardia/get_price_non_agonistic_visit_lombardia"
             ),
             "price_agonistic": os.getenv(
                 "PRICE_AGONISTIC_URL",
