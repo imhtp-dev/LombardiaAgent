@@ -28,7 +28,7 @@ class PricingService:
     
     def __init__(self):
         self.agonistic_url = info_settings.api_endpoints["price_agonistic"]
-        self.non_agonistic_url = info_settings.api_endpoints["price_non_agonistic"]
+        self.non_agonistic_url = info_settings.api_endpoints["get_price_non_agonistic_visit_lombardia"]
         self.timeout = info_settings.api_timeout
         self.session: Optional[aiohttp.ClientSession] = None
         logger.info(f"💰 Pricing Service initialized")
@@ -192,7 +192,7 @@ class PricingService:
                         {
                             "toolCallId": "pipecat_non_agonistic_pricing",
                             "function": {
-                                "name": "get_price_non_agonistic_visit",
+                                "name": "get_price_non_agonistic_visit_lombardia",
                                 "arguments": json.dumps({"ecg_under_stress": ecg_under_stress})
                             }
                         }

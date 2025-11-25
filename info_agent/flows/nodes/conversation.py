@@ -79,10 +79,10 @@ def create_greeting_node(flow_manager: FlowManager = None) -> NodeConfig:
         }],
         "functions": [
             # ================================================================
-            # TOOL 1: Knowledge Base Query
+            # TOOL 1: Knowledge Base Query (Lombardia)
             # ================================================================
             FlowsFunctionSchema(
-                name="query_knowledge_base",
+                name="knowledge_base_lombardia",
                 handler=query_knowledge_base_handler,
                 description="Search knowledge base for FAQs, documents, forms, preparation instructions, and general medical information",
                 properties={
@@ -124,10 +124,10 @@ def create_greeting_node(flow_manager: FlowManager = None) -> NodeConfig:
             ),
 
             # ================================================================
-            # TOOL 3: Non-Competitive (Non-Agonistic) Pricing
+            # TOOL 3: Non-Competitive (Non-Agonistic) Pricing (Lombardia)
             # ================================================================
             FlowsFunctionSchema(
-                name="get_non_competitive_pricing",
+                name="get_price_non_agonistic_visit_lombardia",
                 handler=get_non_competitive_pricing_handler,
                 description="Get price for non-agonistic sports medical visit (for gym, recreational sports). Ask user if they need ECG under stress.",
                 properties={
@@ -173,10 +173,10 @@ def create_greeting_node(flow_manager: FlowManager = None) -> NodeConfig:
             ),
 
             # ================================================================
-            # TOOL 6: Clinic Information
+            # TOOL 6: Clinic Information (Lombardia - Call Graph)
             # ================================================================
             FlowsFunctionSchema(
-                name="get_clinic_info",
+                name="call_graph_lombardia",
                 handler=get_clinic_info_handler,
                 description="Get clinic information: hours, closures, blood collection times, doctor names, etc. Pass the user's request as natural language query including location.",
                 properties={
