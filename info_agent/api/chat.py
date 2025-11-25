@@ -3,14 +3,14 @@ Text chat endpoint for testing voice agent knowledge
 Uses the SAME LLM and flows as WebSocket agent, based on chat_test.py
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Literal
 from loguru import logger
 from datetime import datetime
 import asyncio
 
-from .auth import get_current_user_from_token
+# Authentication removed - chat endpoint now open for testing
 
 # Pipecat imports
 from pipecat.frames.frames import (
@@ -105,13 +105,13 @@ class TextOutputCapture(FrameProcessor):
 @router.post("/send", response_model=ChatResponse)
 async def send_chat_message(
     request: ChatRequest,
-    current_user: dict = Depends(get_current_user_from_token)
+    # current_user: dict = Depends(get_current_user_from_token)  # Auth removed
 ):
     """
     Send text to REAL agent (same LLM+flows as WebSocket)
     """
     try:
-        logger.info(f"💬 {current_user['email']}: {request.message[:80]}...")
+        logger.info(f"💬 Chat request: {request.message[:80]}...")
         
         # Create services
         llm = create_llm_service()
@@ -138,7 +138,7 @@ async def send_chat_message(
         # Create flow manager
         flow_manager = create_flow_manager(task, llm, context_aggregator, None)
         flow_manager.state["region"] = request.region
-        flow_manager.state["session_id"] = f"chat-{current_user['user_id']}"
+        flow_manager.state["session_id"] = f"chat-{datetime.now().timestamp()}"
         
         # Start pipeline FIRST
         runner = PipelineRunner()

@@ -84,7 +84,7 @@ class RawPCMSerializer(FrameSerializer):
 
 # Import dependencies before app creation
 from info_agent.api.database import db
-from info_agent.api import auth, users, qa, dashboard, chat
+from info_agent.api import chat
 from info_agent.api.qa import initialize_ai_services
 from info_agent.services.call_retry_service import start_retry_service, stop_retry_service
 
@@ -162,18 +162,10 @@ app.add_middleware(
 )
 
 # Register API routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(users.router, prefix="/api/users", tags=["Users"])
-app.include_router(qa.router, prefix="/api/qa", tags=["Q&A Management"])
-app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 
-logger.info("✅ API routers registered:")
-logger.info("   - /api/auth/* (Authentication)")
-logger.info("   - /api/users/* (User Management)")
-logger.info("   - /api/qa/* (Q&A Management)")
-logger.info("   - /api/dashboard/* (Dashboard Statistics)")
-logger.info("   - /api/chat/* (Chat Interface)")
+logger.info("✅ Chat API router registered")
+logger.info("   - /api/chat/* - Chat endpoints (other APIs now in Supabase Edge Functions)")
 
 
 active_sessions: Dict[str, Any] = {}
