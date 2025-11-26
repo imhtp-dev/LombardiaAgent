@@ -416,12 +416,17 @@ async def health_check():
 
 @app.post("/api/create-session")
 async def create_session():
-    """Return hardcoded session info for dashboard integration"""
+    """Create a new unique session for each connection"""
     port = os.getenv("CHAT_SERVICE_PORT", "8002")
     host = os.getenv("CHAT_SERVICE_HOST", "localhost")
 
+    # Generate a unique session ID for each new connection
+    new_session_id = str(uuid.uuid4())
+
+    logger.info(f"🆕 Creating new session: {new_session_id}")
+
     return {
-        "session_id": FIXED_SESSION_ID,
+        "session_id": new_session_id,
         "websocket_url": f"ws://{host}:{port}/ws",
         "phone": FIXED_CALLER_PHONE,
         "dob": FIXED_PATIENT_DOB,
