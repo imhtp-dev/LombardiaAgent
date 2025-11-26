@@ -163,6 +163,16 @@ WS /ws/{session_id}
 }
 ```
 
+**Function Called (Real-time):**
+```json
+{
+  "type": "function_called",
+  "function_name": "knowledge_base_lombardia",
+  "timestamp": "2025-11-26T10:30:00.500Z"
+}
+```
+*Sent in real-time when the AI calls a function (e.g., knowledge base query, price check, booking API)*
+
 **Streaming Chunk:**
 ```json
 {
@@ -291,6 +301,14 @@ class PipecatChatClient extends EventEmitter {
         }
         break;
 
+      case 'function_called':
+        // AI called a function (e.g., knowledge base, price check)
+        this.emit('function_called', {
+          function_name: message.function_name,
+          timestamp: message.timestamp
+        });
+        break;
+
       case 'chunk':
         // Real-time streaming chunk
         this.emit('chunk', message.content);
@@ -379,6 +397,10 @@ chatClient.on('typing', () => {
   console.log('⌨️ AI is typing...');
 });
 
+chatClient.on('function_called', (data) => {
+  console.log(`🔧 Function called: ${data.function_name}`);
+});
+
 chatClient.on('chunk', (text) => {
   // Display text chunk in real-time (streaming effect)
   process.stdout.write(text);
@@ -446,6 +468,7 @@ export function usePipecatChat(baseUrl) {
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState([]);
   const [currentChunk, setCurrentChunk] = useState('');
+  const [functionCalls, setFunctionCalls] = useState([]);
   const clientRef = useRef(null);
 
   useEffect(() => {
@@ -459,6 +482,14 @@ export function usePipecatChat(baseUrl) {
 
     clientRef.current.on('typing', () => {
       setIsTyping(true);
+    });
+
+    clientRef.current.on('function_called', (data) => {
+      // Track function calls for analytics/display
+      setFunctionCalls((prev) => [...prev, {
+        function_name: data.function_name,
+        timestamp: data.timestamp
+      }]);
     });
 
     clientRef.current.on('chunk', (text) => {
@@ -524,6 +555,7 @@ export function usePipecatChat(baseUrl) {
     isTyping,
     messages,
     currentChunk,
+    functionCalls,
     connect,
     sendMessage,
     disconnect
@@ -548,6 +580,7 @@ export default function ChatWidget() {
     isTyping,
     messages,
     currentChunk,
+    functionCalls,
     connect,
     sendMessage,
     disconnect
@@ -603,6 +636,13 @@ export default function ChatWidget() {
             />
             <button onClick={handleSend}>Send</button>
           </div>
+
+          {/* Display function calls for analytics/debugging */}
+          {functionCalls.length > 0 && (
+            <div className="function-calls-indicator">
+              🔧 Functions called: {functionCalls.map(f => f.function_name).join(', ')}
+            </div>
+          )}
 
           <button onClick={disconnect}>Disconnect</button>
         </>

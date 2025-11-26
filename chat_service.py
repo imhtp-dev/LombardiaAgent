@@ -52,7 +52,8 @@ from pipecat.frames.frames import (
     StartFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
-    MetricsFrame
+    MetricsFrame,
+    FunctionCallResultFrame
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.pipeline.pipeline import Pipeline
@@ -118,6 +119,26 @@ class TextOutputProcessor(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process outgoing frames and send text to WebSocket"""
         await super().process_frame(frame, direction)
+
+        # Intercept function calls and broadcast to WebSocket clients
+        if isinstance(frame, FunctionCallResultFrame):
+            function_name = frame.function_name if hasattr(frame, 'function_name') else "unknown"
+
+            function_data = {
+                "type": "function_called",
+                "function_name": function_name,
+                "timestamp": datetime.now().isoformat()
+            }
+
+            # Broadcast to all connected websockets
+            for ws in self.websockets[:]:
+                try:
+                    await ws.send_json(function_data)
+                    logger.info(f"📤 Sent function call: {function_name}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to send function call: {e}")
+                    if ws in self.websockets:
+                        self.websockets.remove(ws)
 
         # ONLY capture text going DOWNSTREAM (from LLM to output)
         if isinstance(frame, TextFrame) and direction == FrameDirection.DOWNSTREAM:
