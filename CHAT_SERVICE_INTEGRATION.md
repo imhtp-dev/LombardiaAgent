@@ -1,4 +1,4 @@
-# Chat Service Integration Guide
+# Chat Service Integration Guide/
 ## WebSocket Chat API for Dashboard Integration
 
 This guide shows how to integrate the Pipecat Chat Service into your Node.js dashboard.
@@ -787,3 +787,4 @@ Your chat service will be available at:
 - **REST API**: `http://your-azure-vm:8002/api/*`
 - **WebSocket**: `ws://your-azure-vm:8002/ws/{session_id}`
 - **Health**: `http://your-azure-vm:8002/health`
+
