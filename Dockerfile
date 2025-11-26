@@ -58,6 +58,7 @@ COPY data/ ./data/
 COPY info_agent/ ./info_agent/
 COPY bot.py ./
 COPY talkdesk_hangup.py ./
+COPY chat_service.py ./
 
 # Create non-root user and set permissions
 RUN groupadd -r pipecat && useradd -r -g pipecat pipecat && \

@@ -139,6 +139,40 @@ services:
     networks:
       - pipecat-network
 
+  # Chat Service - WebSocket API for Dashboard Integration
+  chat-service:
+    image: rudyimhtpdev/lombardia_region:latest
+    container_name: chat-service
+    command: python chat_service.py
+    ports:
+      - "8002:8002"  # Exposed for external dashboard access
+    environment:
+      - CHAT_SERVICE_PORT=8002
+      - CHAT_SERVICE_HOST=0.0.0.0
+    env_file:
+      - .env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - pipecat-network
+
 networks:
   pipecat-network:
     driver: bridge
