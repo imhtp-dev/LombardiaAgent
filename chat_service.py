@@ -12,6 +12,7 @@ Features:
 - Transcript tracking
 - Token usage metrics
 - Shared state for concurrent users
+- Real-time function call broadcasting
 
 Usage:
     Local:      python chat_service.py
