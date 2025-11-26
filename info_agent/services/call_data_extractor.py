@@ -268,7 +268,7 @@ class CallDataExtractor:
                 "4. ESITO_CHIAMATA: COMPLETATA (call ended naturally), TRASFERITA (transferred to human), "
                 "NON COMPLETATA (call ended prematurely)\n"
                 "5. MOTIVAZIONE: Info fornite, Argomento sconosciuto, Interrotta dal paziente, "
-                "Prenotazione, Mancata comprensione, Richiesta paziente\n"
+                "Prenotazione, Mancata comprensione, Richiesta paziente\n, Problema Tecnico \nFuori orario"
                 "6. PATIENT_INTENT: Brief description of what patient wanted (max 100 chars)\n\n"
                 "Reply ONLY with a JSON in the format:\n"
                 '{"summary": "...", "action": "completed/question/transfer/book", '
@@ -531,7 +531,7 @@ class CallDataExtractor:
                 sentiment = transfer_data.get("sentiment", "neutral")
                 service = str(transfer_data.get("service", "5"))
                 esito_chiamata = "TRASFERITA"
-                motivazione = "Trasferimento operatore umano"
+                motivazione = "Richiesta paziente"
                 patient_intent = "Richiesta assistenza operatore"
                 summary = transfer_data.get("summary", "Transfer richiesto")[:250]
 
