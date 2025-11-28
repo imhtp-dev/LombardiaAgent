@@ -6,7 +6,7 @@ Provides exam requirements for sports medicine visits by visit type or sport
 import json
 import asyncio
 import aiohttp
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from loguru import logger
 
@@ -19,8 +19,9 @@ class ExamResult:
     exams: List[str]
     visit_type: Optional[str] = None
     sport: Optional[str] = None
+    visit_code: Optional[str] = None  # Visit code from API (B1, B2, etc.)
     success: bool = True
-    error: Optional[str] = None
+    error: Optional[str] = None  # Complete API result object
 
 
 class ExamService:
@@ -112,7 +113,6 @@ class ExamService:
                     )
 
                 # Extract the exam data from results[0]["result"]
-                # Note: result is a dict object (not JSON string)
                 exam_data = results[0].get("result", {})
 
                 if not exam_data:
@@ -124,14 +124,17 @@ class ExamService:
                         error="Empty exam data"
                     )
 
-                exams = exam_data.get("exams", [])
+                # Extract fields from API response
+                exams = exam_data.get("preparations", [])
+                visit_code = exam_data.get("visita")  # Extract visit code (B1, B2, etc.)
 
-                logger.success(f"✅ Found {len(exams)} exams for visit type {visit_type}")
+                logger.success(f"✅ Found {len(exams)} exams for visit type {visit_type} (code: {visit_code})")
                 logger.debug(f"🔬 Exams: {', '.join(exams)}")
 
                 return ExamResult(
                     exams=exams,
                     visit_type=visit_type,
+                    visit_code=visit_code,
                     success=True
                 )
                 
@@ -220,7 +223,6 @@ class ExamService:
                     )
 
                 # Extract the exam data from results[0]["result"]
-                # Note: result is a dict object (not JSON string)
                 exam_data = results[0].get("result", {})
 
                 if not exam_data:
@@ -232,14 +234,17 @@ class ExamService:
                         error="Empty exam data"
                     )
 
-                exams = exam_data.get("exams", [])
+                # Extract fields from API response
+                exams = exam_data.get("preparations", [])
+                visit_code = exam_data.get("visita")  # Extract visit code (B1, B2, etc.)
 
-                logger.success(f"✅ Found {len(exams)} exams for sport '{sport}'")
+                logger.success(f"✅ Found {len(exams)} exams for sport '{sport}' (code: {visit_code})")
                 logger.debug(f"🔬 Exams: {', '.join(exams)}")
 
                 return ExamResult(
                     exams=exams,
                     sport=sport,
+                    visit_code=visit_code,
                     success=True
                 )
                 

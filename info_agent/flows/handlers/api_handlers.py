@@ -270,7 +270,7 @@ async def get_exam_by_visit_handler(
 
         # Call exam service
         from info_agent.services.exam_service import exam_service
-        result = await exam_service.get_exams_by_visit(visit_type)
+        result = await exam_service.get_exams_by_visit_type(visit_type)
 
         if result.success:
             logger.success(f"✅ Exam list retrieved for {visit_type}: {len(result.exams)} exams")
@@ -282,14 +282,15 @@ async def get_exam_by_visit_handler(
                 call_extractor.add_function_call(
                     function_name="get_exam_by_visit",
                     parameters={"visit_type": visit_type},
-                    result={"exam_count": len(result.exams)}
+                    result={"exam_count": len(result.exams), "visit_code": result.visit_code}
                 )
 
-            # Return to greeting node for follow-up
+            # Return to greeting node with extracted fields
             from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "visit_type": visit_type,
+                "visit_code": result.visit_code,
                 "exams": result.exams,
                 "exam_count": len(result.exams)
             }, create_greeting_node(flow_manager)
@@ -351,14 +352,15 @@ async def get_exam_by_sport_handler(
                 call_extractor.add_function_call(
                     function_name="get_exam_by_sport",
                     parameters={"sport": sport},
-                    result={"exam_count": len(result.exams)}
+                    result={"exam_count": len(result.exams), "visit_code": result.visit_code}
                 )
 
-            # Return to greeting node for follow-up
+            # Return to greeting node with extracted fields
             from info_agent.flows.nodes.conversation import create_greeting_node
             return {
                 "success": True,
                 "sport": sport,
+                "visit_code": result.visit_code,
                 "exams": result.exams,
                 "exam_count": len(result.exams)
             }, create_greeting_node(flow_manager)

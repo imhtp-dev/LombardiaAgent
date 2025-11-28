@@ -17,8 +17,6 @@ from info_agent.config.settings import info_settings
 class ClinicInfoResult:
     """Result from clinic information query"""
     answer: str
-    location: Optional[str] = None
-    info_type: Optional[str] = None
     success: bool = True
     error: Optional[str] = None
 
