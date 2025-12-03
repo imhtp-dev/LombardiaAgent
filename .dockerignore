@@ -67,6 +67,9 @@ tests/
 test_*.py
 test.py
 
+# Langfuse trace files (local testing only)
+test_traces.json/
+
 # Large data files - be specific to avoid blocking needed files
 extra/*.json
 recordings/*.json

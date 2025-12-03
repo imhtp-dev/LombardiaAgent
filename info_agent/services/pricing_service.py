@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from info_agent.config.settings import info_settings
+from info_agent.utils.tracing import trace_api_call, add_span_attributes
 
 
 @dataclass
@@ -41,6 +42,7 @@ class PricingService:
             self.session = aiohttp.ClientSession()
             logger.debug("💰 HTTP session created for pricing service")
     
+    @trace_api_call("api.pricing_competitive")
     async def get_competitive_price(
         self,
         age: int,
@@ -167,6 +169,7 @@ class PricingService:
                 error=str(e)
             )
     
+    @trace_api_call("api.pricing_non_competitive")
     async def get_non_competitive_price(
         self,
         ecg_under_stress: bool

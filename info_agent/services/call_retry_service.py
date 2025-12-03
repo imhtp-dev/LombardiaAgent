@@ -15,6 +15,7 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
 from info_agent.api.database import db
+from info_agent.utils.tracing import trace_api_call, add_span_attributes
 
 
 class CallRetryService:
@@ -224,6 +225,7 @@ class CallRetryService:
             traceback.print_exc()
             return False
 
+    @trace_api_call("api.sendgrid_alert_email")
     async def _send_failure_alert(self, call_id: str, data: Dict[str, Any], backup_file: Path):
         """
         Send email alert for permanent failure
@@ -233,6 +235,17 @@ class CallRetryService:
             data: Call data
             backup_file: Path to backup file
         """
+        # Add span attributes for tracking
+        add_span_attributes({
+            "alert.call_id": call_id,
+            "alert.type": "permanent_failure",
+            "alert.recipient_count": len([e for e in self.alert_to_emails if e]),
+            "alert.phone_number": data.get("phone_number", "N/A"),
+            "alert.duration_seconds": data.get("duration_seconds", 0),
+            "alert.action": data.get("action", "N/A"),
+            "alert.sentiment": data.get("sentiment", "N/A")
+        })
+
         try:
             if not self.sendgrid_api_key:
                 logger.error("❌ SendGrid API key not configured, cannot send alert")

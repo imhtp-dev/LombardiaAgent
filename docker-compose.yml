@@ -30,6 +30,18 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - INSTANCE_ID=1
+      # LangFuse & OpenTelemetry Configuration
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT}
+      - OTEL_EXPORTER_OTLP_TRACES_HEADERS=${OTEL_EXPORTER_OTLP_TRACES_HEADERS}
+      - OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=${OTEL_EXPORTER_OTLP_TRACES_PROTOCOL:-http/protobuf}
+      - OTEL_CONSOLE_EXPORT=${OTEL_CONSOLE_EXPORT:-false}
+      - OTEL_SERVICE_NAME=pipecat-healthcare-agent-1
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - VERSION=${VERSION:-1.0.0}
     env_file:
       - .env
     restart: unless-stopped
@@ -69,6 +81,18 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - INSTANCE_ID=2
+      # LangFuse & OpenTelemetry Configuration
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT}
+      - OTEL_EXPORTER_OTLP_TRACES_HEADERS=${OTEL_EXPORTER_OTLP_TRACES_HEADERS}
+      - OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=${OTEL_EXPORTER_OTLP_TRACES_PROTOCOL:-http/protobuf}
+      - OTEL_CONSOLE_EXPORT=${OTEL_CONSOLE_EXPORT:-false}
+      - OTEL_SERVICE_NAME=pipecat-healthcare-agent-2
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - VERSION=${VERSION:-1.0.0}
     env_file:
       - .env
     restart: unless-stopped
@@ -108,6 +132,18 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - INSTANCE_ID=3
+      # LangFuse & OpenTelemetry Configuration
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT}
+      - OTEL_EXPORTER_OTLP_TRACES_HEADERS=${OTEL_EXPORTER_OTLP_TRACES_HEADERS}
+      - OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=${OTEL_EXPORTER_OTLP_TRACES_PROTOCOL:-http/protobuf}
+      - OTEL_CONSOLE_EXPORT=${OTEL_CONSOLE_EXPORT:-false}
+      - OTEL_SERVICE_NAME=pipecat-healthcare-agent-3
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - VERSION=${VERSION:-1.0.0}
     env_file:
       - .env
     restart: unless-stopped
@@ -140,38 +176,39 @@ services:
       - pipecat-network
 
   # Chat Service - WebSocket API for Dashboard Integration
-  chat-service:
-    image: rudyimhtpdev/lombardia_region:latest
-    container_name: chat-service
-    command: python chat_service.py
-    ports:
-      - "8002:8002"  # Exposed for external dashboard access
-    environment:
-      - CHAT_SERVICE_PORT=8002
-      - CHAT_SERVICE_HOST=0.0.0.0
-    env_file:
-      - .env
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: '0.5'
-        reservations:
-          memory: 512M
-          cpus: '0.25'
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
-      interval: 15s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - pipecat-network
+  # DISABLED FOR NOW - Will be used in future
+  # chat-service:
+  #   image: rudyimhtpdev/lombardia_region:latest
+  #   container_name: chat-service
+  #   command: python chat_service.py
+  #   ports:
+  #     - "8002:8002"  # Exposed for external dashboard access
+  #   environment:
+  #     - CHAT_SERVICE_PORT=8002
+  #     - CHAT_SERVICE_HOST=0.0.0.0
+  #   env_file:
+  #     - .env
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 2G
+  #         cpus: '0.5'
+  #       reservations:
+  #         memory: 512M
+  #         cpus: '0.25'
+  #     restart_policy:
+  #       condition: on-failure
+  #       delay: 5s
+  #       max_attempts: 3
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+  #     interval: 15s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 10s
+  #   networks:
+  #     - pipecat-network
 
 networks:
   pipecat-network:

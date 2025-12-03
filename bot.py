@@ -39,13 +39,15 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.observers.base_observer import BaseObserver
-from pipecat.metrics.metrics import LLMUsageMetricsData
-
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
+
+# OpenTelemetry & LangFuse
+from config.telemetry import setup_tracing, get_tracer, get_conversation_tokens, flush_traces
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 
@@ -89,51 +91,6 @@ class RawPCMSerializer(FrameSerializer):
                 num_channels=1
             )
         return None
-
-
-class LLMUsageMetricsObserver(BaseObserver):
-    """
-    Observer to capture LLM token usage metrics and increment call_extractor token count.
-    Monitors MetricsFrame for LLMUsageMetricsData and updates the token counter.
-    """
-
-    def __init__(self, flow_manager):
-        super().__init__()
-        self.flow_manager = flow_manager
-        logger.info("🔢 LLMUsageMetricsObserver initialized")
-
-    async def on_push_frame(
-        self,
-        src: FrameProcessor,
-        dst: FrameProcessor,
-        frame: Frame,
-        direction: FrameDirection,
-        timestamp: int,
-    ):
-        """Capture LLM usage metrics when MetricsFrame is pushed"""
-        # Check if this is a MetricsFrame
-        if isinstance(frame, MetricsFrame):
-            # Iterate through metrics data
-            for metric in frame.data:
-                # Check if this is LLM usage metrics
-                if isinstance(metric, LLMUsageMetricsData):
-                    usage = metric.value
-                    total_tokens = usage.total_tokens
-
-                    logger.info(f"🔢 LLM Token Usage Captured:")
-                    logger.info(f"   Processor: {metric.processor}")
-                    logger.info(f"   Model: {metric.model}")
-                    logger.info(f"   Prompt tokens: {usage.prompt_tokens}")
-                    logger.info(f"   Completion tokens: {usage.completion_tokens}")
-                    logger.info(f"   Total tokens: {total_tokens}")
-
-                    # Increment call_extractor token count
-                    call_extractor = self.flow_manager.state.get("call_extractor")
-                    if call_extractor:
-                        call_extractor.increment_tokens(total_tokens)
-                        logger.info(f"✅ Updated call_extractor total tokens: {call_extractor.llm_token_count}")
-                    else:
-                        logger.warning("⚠️ call_extractor not found in flow_manager.state")
 
 
 async def report_to_talkdesk(flow_manager, call_extractor):
@@ -255,6 +212,12 @@ app = FastAPI(
     description="Healthcare flow bot using app.py WebSocket transport",
     version="5.0.0",
     lifespan=lifespan
+)
+
+# Initialize OpenTelemetry tracing (LangFuse)
+tracer = setup_tracing(
+    service_name="pipecat-healthcare-production",
+    enable_console=False
 )
 
 # CORS configuration
@@ -459,14 +422,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # CREATE USER IDLE PROCESSOR FOR HANDLING TRANSCRIPTION FAILURES
         from services.idle_handler import create_user_idle_processor
-        user_idle_processor = create_user_idle_processor(timeout_seconds=50.0)
-        logger.info("🕐 UserIdleProcessor created (50s timeout - accounts for API processing delays)")
+        user_idle_processor = create_user_idle_processor(timeout_seconds=20.0)
+        logger.info("🕐 UserIdleProcessor created (20s timeout - accounts for API processing delays)")
+
+        # CREATE PROCESSING TIME TRACKER FOR SLOW RESPONSE DETECTION
+        from services.processing_time_tracker import create_processing_time_tracker
+        processing_tracker = create_processing_time_tracker(threshold_seconds=3.0)
+        logger.info("🕐 ProcessingTimeTracker created (3s threshold - speaks if processing slow)")
 
         # CREATE PIPELINE WITH TRANSCRIPT PROCESSORS AND IDLE HANDLING
         pipeline = Pipeline([
             transport.input(),
             stt,
-            user_idle_processor,                      # Add idle detection after STT
+            user_idle_processor,                      # Add idle detection after STT (20s complete silence)
+            processing_tracker,                       # Add processing time monitor (4s slow response)
             transcript_processor.user(),              # Capture user transcriptions
             context_aggregator.user(),
             llm,
@@ -479,14 +448,15 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info("Healthcare Flow Pipeline structure:")
         logger.info("  1. Input (PCM from bridge)")
         logger.info("  2. Deepgram STT")
-        logger.info("  3. UserIdleProcessor - Handle transcription failures & silence")
-        logger.info("  4. TranscriptProcessor.user() - Capture user transcriptions")
-        logger.info("  5. Context Aggregator (User)")
-        logger.info("  6. OpenAI LLM (with flows + gender node termina→femmina correction)")
-        logger.info("  7. ElevenLabs TTS")
-        logger.info("  8. Output (PCM to bridge)")
-        logger.info("  9. TranscriptProcessor.assistant() - Capture assistant responses")
-        logger.info("  10. Context Aggregator (Assistant)")
+        logger.info("  3. UserIdleProcessor - Handle transcription failures & 20s silence")
+        logger.info("  4. ProcessingTimeTracker - Speak if processing >3s")
+        logger.info("  5. TranscriptProcessor.user() - Capture user transcriptions")
+        logger.info("  6. Context Aggregator (User)")
+        logger.info("  7. OpenAI LLM (with flows + gender node termina→femmina correction)")
+        logger.info("  8. ElevenLabs TTS")
+        logger.info("  9. Output (PCM to bridge)")
+        logger.info("  10. TranscriptProcessor.assistant() - Capture assistant responses")
+        logger.info("  11. Context Aggregator (Assistant)")
 
         # START PER-CALL LOGGING (create individual logger instance)
         from services.call_logger import CallLogger
@@ -494,14 +464,7 @@ async def websocket_endpoint(websocket: WebSocket):
         log_file = session_call_logger.start_call_logging(session_id, caller_phone)
         logger.info(f"📁 Call logging started: {log_file}")
 
-        # CREATE FLOW MANAGER (TEMPORARY - will be updated with task later)
-        # We need a placeholder flow_manager for the observer during initialization
-        flow_manager_placeholder = type('obj', (object,), {'state': {}})()  # Minimal placeholder with state dict
-
-        # Create LLM token usage observer with placeholder
-        token_observer = LLMUsageMetricsObserver(flow_manager_placeholder)
-
-        # Create pipeline task with extended idle timeout for API calls and token tracking enabled
+        # Create pipeline task with extended idle timeout for API calls and OpenTelemetry tracing enabled
         task = PipelineTask(
             pipeline,
             params=PipelineParams(
@@ -509,17 +472,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 enable_transcriptions=True,
                 audio_in_sample_rate=16000,
                 audio_out_sample_rate=16000,
-                enable_usage_metrics=True,  # ✅ ENABLE TOKEN TRACKING
+                enable_usage_metrics=True,  # Keep metrics enabled for performance monitoring
+                enable_metrics=True,
             ),
-            observers=[token_observer],  # ✅ ATTACH OBSERVER
+            enable_tracing=True,  # ✅ Enable OpenTelemetry tracing (LangFuse)
+            conversation_id=session_id,  # Use session_id as conversation ID for trace correlation
             idle_timeout_secs=600  # 10 minutes - allows for long API calls (sorting, slot search)
         )
 
         # NOW create the real FlowManager with all parameters
         flow_manager = create_flow_manager(task, llm, context_aggregator, transport)
-
-        # Update observer to use the real flow_manager
-        token_observer.flow_manager = flow_manager
 
         # ✅ Store business_status, session_id, and stream_sid in flow manager state
         flow_manager.state["business_status"] = business_status
@@ -755,6 +717,24 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 call_extractor = flow_manager.state.get("call_extractor")
                 if call_extractor:
+                    # ✅ Query LangFuse for token usage before saving to Supabase
+                    if os.getenv("ENABLE_TRACING", "false").lower() == "true":
+                        logger.info("📊 Querying LangFuse for token usage...")
+                        try:
+                            # Wait briefly for LangFuse to process final spans
+                            await asyncio.sleep(2)
+
+                            # Get token usage from LangFuse
+                            token_data = await get_conversation_tokens(session_id)
+
+                            # Update call_extractor with token data
+                            call_extractor.llm_token_count = token_data["total_tokens"]
+                            logger.success(f"✅ Updated call_extractor with LangFuse tokens: {token_data['total_tokens']}")
+
+                        except Exception as e:
+                            logger.error(f"❌ Failed to retrieve tokens from LangFuse: {e}")
+                            # Continue with save even if LangFuse query fails
+
                     # ✅ CRITICAL: Mark call end time before saving
                     call_extractor.end_call()
                     success = await call_extractor.save_to_database(flow_manager.state)
@@ -807,6 +787,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.error(f"❌ Error in fallback call logging cleanup: {fallback_error}")
         except Exception as e:
             logger.error(f"❌ Error stopping call logging: {e}")
+
+        # Flush OpenTelemetry traces to Langfuse before exit
+        try:
+            flush_traces()
+        except Exception as e:
+            logger.error(f"❌ Error flushing traces: {e}")
 
         logger.info(f"Healthcare Flow Session ended: {session_id}")
         logger.info(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

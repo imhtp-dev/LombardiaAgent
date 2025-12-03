@@ -5,11 +5,13 @@ Calls the bridge escalation API which handles WebSocket closure and Talkdesk tra
 import aiohttp
 from loguru import logger
 from typing import Optional
+from info_agent.utils.tracing import trace_api_call, add_span_attributes
 
 # Bridge escalation endpoint
 ESCALATION_API_URL = "https://bridgelombardia-bjezhhgmctauawe3.francecentral-01.azurewebsites.net/escalation"
 
 
+@trace_api_call("api.escalation_transfer")
 async def call_escalation_api(
     summary: str,
     sentiment: str,
@@ -71,6 +73,17 @@ async def call_escalation_api(
                 ]
             }
         }
+
+        # Add span attributes for tracking
+        add_span_attributes({
+            "escalation.call_id": call_id,
+            "escalation.sentiment": sentiment,
+            "escalation.action": action,
+            "escalation.duration_seconds": duration,
+            "escalation.service_code": service,
+            "escalation.summary_length": len(summary),
+            "escalation.has_stream_sid": bool(stream_sid)
+        })
 
         logger.info(f"Calling escalation API: {ESCALATION_API_URL}")
         logger.info(f"Escalation data: call_id={call_id}, stream_sid={stream_sid or 'Not provided'}, "

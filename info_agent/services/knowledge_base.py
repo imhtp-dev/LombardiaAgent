@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from info_agent.config.settings import info_settings
+from info_agent.utils.tracing import trace_api_call, add_span_attributes
 
 
 @dataclass
@@ -38,20 +39,28 @@ class KnowledgeBaseService:
             self.session = aiohttp.ClientSession()
             logger.debug("📚 HTTP session created for knowledge base")
     
+    @trace_api_call("api.knowledge_base_lombardia")
     async def query(self, question: str) -> KnowledgeBaseResult:
         """
         Query knowledge base with natural language question
-        
+
         Args:
             question: Natural language question in Italian
-            
+
         Returns:
             KnowledgeBaseResult with answer and confidence
         """
         try:
             await self.initialize()
-            
+
             logger.info(f"📚 Querying knowledge base: '{question[:100]}...'")
+
+            # Add span attributes for query details
+            add_span_attributes({
+                "query": question[:200],
+                "api_endpoint": self.api_url,
+                "timeout_seconds": self.timeout
+            })
 
             # VAPI-compatible request format
             request_data = {
@@ -77,6 +86,12 @@ class KnowledgeBaseService:
                 response.raise_for_status()
                 data = await response.json()
 
+                # Add response metadata to span
+                add_span_attributes({
+                    "status_code": response.status,
+                    "response_size_bytes": len(json.dumps(data))
+                })
+
                 # Debug: Log full API response
                 logger.debug(f"🔍 API Response: {data}")
 
@@ -85,6 +100,7 @@ class KnowledgeBaseService:
 
                 if not results or len(results) == 0:
                     logger.warning("⚠️ API returned empty results")
+                    add_span_attributes({"result_empty": True})
                     return KnowledgeBaseResult(
                         answer="",
                         confidence=0.0,
@@ -110,6 +126,15 @@ class KnowledgeBaseService:
                     # String response = successful answer from Lombardy API
                     logger.success(f"✅ Knowledge base returned answer (Lombardy format - string)")
                     logger.debug(f"📚 Answer preview: {kb_data[:200]}...")
+
+                    # Add success metrics to span
+                    add_span_attributes({
+                        "result_format": "string",
+                        "answer_length": len(kb_data),
+                        "confidence": 1.0,
+                        "source": "Lombardy Knowledge Base"
+                    })
+
                     return KnowledgeBaseResult(
                         answer=kb_data,
                         confidence=1.0,  # Lombardy doesn't provide confidence, assume high
@@ -133,6 +158,14 @@ class KnowledgeBaseService:
 
                 logger.success(f"✅ Knowledge base returned answer (confidence: {confidence:.2f})")
                 logger.debug(f"📚 Answer preview: {answer[:200]}...")
+
+                # Add success metrics to span
+                add_span_attributes({
+                    "result_format": "dict",
+                    "answer_length": len(answer),
+                    "confidence": confidence,
+                    "source": source or "unknown"
+                })
 
                 return KnowledgeBaseResult(
                     answer=answer,

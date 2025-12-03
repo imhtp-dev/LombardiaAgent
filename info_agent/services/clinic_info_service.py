@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from info_agent.config.settings import info_settings
+from info_agent.utils.tracing import trace_api_call, add_span_attributes
 
 
 @dataclass
@@ -36,6 +37,7 @@ class ClinicInfoService:
             self.session = aiohttp.ClientSession()
             logger.debug("🏥 HTTP session created for clinic info service")
     
+    @trace_api_call("api.clinic_info_call_graph")
     async def get_clinic_info(
         self,
         query: str

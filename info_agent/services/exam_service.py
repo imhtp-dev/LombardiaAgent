@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from info_agent.config.settings import info_settings
+from info_agent.utils.tracing import trace_api_call, add_span_attributes
 
 
 @dataclass
@@ -42,6 +43,7 @@ class ExamService:
             self.session = aiohttp.ClientSession()
             logger.debug("🔬 HTTP session created for exam service")
     
+    @trace_api_call("api.exam_by_visit_type")
     async def get_exams_by_visit_type(
         self,
         visit_type: str
@@ -165,6 +167,7 @@ class ExamService:
                 error=str(e)
             )
     
+    @trace_api_call("api.exam_by_sport")
     async def get_exams_by_sport(
         self,
         sport: str

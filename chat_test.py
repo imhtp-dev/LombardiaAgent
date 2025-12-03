@@ -64,8 +64,11 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.observers.base_observer import BaseObserver
-from pipecat.metrics.metrics import LLMUsageMetricsData
+
+# OpenTelemetry for LangFuse tracing
+from config.telemetry import setup_tracing, get_tracer, get_conversation_tokens, get_current_trace_id
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 # Import your existing components and flows
 from config.settings import settings
@@ -109,12 +112,38 @@ class TextOutputProcessor(FrameProcessor):
         self.session_id = session_id
         self.flow_manager = flow_manager  # Will be set later
         self._buffer = ""
+        self._trace_id_captured = False  # Flag to capture trace ID once
         logger.info("💬 TextOutputProcessor initialized")
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process outgoing frames and send text to WebSocket"""
         # CRITICAL: Call super() first to properly initialize the processor
         await super().process_frame(frame, direction)
+
+        # Capture OpenTelemetry trace ID on first frame (get from conversation context)
+        if not self._trace_id_captured and self.flow_manager and os.getenv("ENABLE_TRACING", "false").lower() == "true":
+            try:
+                # Import conversation context provider
+                from pipecat.utils.tracing.conversation_context_provider import ConversationContextProvider
+                from opentelemetry import trace
+
+                # Get the conversation context (this has the conversation span)
+                provider = ConversationContextProvider.get_instance()
+                conv_context = provider.get_current_conversation_context()
+
+                if conv_context:
+                    # Extract the span from the context
+                    current_span = trace.get_current_span(conv_context)
+                    if current_span and current_span.get_span_context().is_valid:
+                        # Get trace ID in hex format (without 0x prefix)
+                        trace_id = format(current_span.get_span_context().trace_id, '032x')
+                        self.flow_manager.state["otel_trace_id"] = trace_id
+                        logger.success(f"🔍 Captured OpenTelemetry trace ID from conversation context: {trace_id}")
+                        self._trace_id_captured = True
+                else:
+                    logger.debug("⏳ Conversation context not available yet, will retry on next frame")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to capture trace ID: {e}")
 
         # ONLY capture text going DOWNSTREAM (from LLM to output)
         # NOT upstream text (user input)
@@ -225,51 +254,6 @@ class TextTransportSimulator(FrameProcessor):
         self._running = False
 
 
-class LLMUsageMetricsObserver(BaseObserver):
-    """
-    Observer to capture LLM token usage metrics and increment call_extractor token count.
-    Monitors MetricsFrame for LLMUsageMetricsData and updates the token counter.
-    """
-
-    def __init__(self, flow_manager):
-        super().__init__()
-        self.flow_manager = flow_manager
-        logger.info("🔢 LLMUsageMetricsObserver initialized")
-
-    async def on_push_frame(
-        self,
-        src: FrameProcessor,
-        dst: FrameProcessor,
-        frame: Frame,
-        direction: FrameDirection,
-        timestamp: int,
-    ):
-        """Capture LLM usage metrics when MetricsFrame is pushed"""
-        # Check if this is a MetricsFrame
-        if isinstance(frame, MetricsFrame):
-            # Iterate through metrics data
-            for metric in frame.data:
-                # Check if this is LLM usage metrics
-                if isinstance(metric, LLMUsageMetricsData):
-                    usage = metric.value
-                    total_tokens = usage.total_tokens
-
-                    logger.info(f"🔢 LLM Token Usage Captured:")
-                    logger.info(f"   Processor: {metric.processor}")
-                    logger.info(f"   Model: {metric.model}")
-                    logger.info(f"   Prompt tokens: {usage.prompt_tokens}")
-                    logger.info(f"   Completion tokens: {usage.completion_tokens}")
-                    logger.info(f"   Total tokens: {total_tokens}")
-
-                    # Increment call_extractor token count
-                    call_extractor = self.flow_manager.state.get("call_extractor")
-                    if call_extractor:
-                        call_extractor.increment_tokens(total_tokens)
-                        logger.info(f"✅ Updated call_extractor total tokens: {call_extractor.llm_token_count}")
-                    else:
-                        logger.warning("⚠️ call_extractor not found in flow_manager.state")
-
-
 async def report_to_talkdesk(flow_manager, call_extractor):
     """
     Report call completion to Talkdesk (ONLY if not transferred to human operator).
@@ -351,6 +335,12 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Initializing Supabase database connection pool...")
     await db.connect()
     logger.success("✅ Supabase database initialized for chat_test.py")
+
+    # Initialize OpenTelemetry tracing (LangFuse)
+    tracer = setup_tracing(
+        service_name="pipecat-healthcare-chat-test",
+        enable_console=False
+    )
 
     yield
 
@@ -1083,15 +1073,7 @@ async def websocket_endpoint(websocket: WebSocket):
         log_file = session_call_logger.start_call_logging(session_id, "text_chat_test")
         logger.info(f"📁 Text chat logging started: {log_file}")
 
-        # CREATE FLOW MANAGER (TEMPORARY - will be replaced after task creation)
-        # We need a placeholder flow_manager for the observer during initialization
-        from flows.manager import FlowManager
-        flow_manager_placeholder = type('obj', (object,), {'state': {}})()  # Minimal placeholder with state dict
-
-        # Create LLM token usage observer with placeholder
-        token_observer = LLMUsageMetricsObserver(flow_manager_placeholder)
-
-        # Create pipeline task with token tracking enabled
+        # Create pipeline task with LangFuse tracing enabled
         # CRITICAL: Disable idle_timeout for text-only chat to prevent premature disconnections
         # In text mode, there are no BotSpeakingFrame events, so idle detection triggers incorrectly
         task = PipelineTask(
@@ -1099,22 +1081,21 @@ async def websocket_endpoint(websocket: WebSocket):
             params=PipelineParams(
                 allow_interruptions=False,  # Not needed for text
                 enable_transcriptions=False,  # No audio transcription
-                enable_usage_metrics=True,  # ✅ ENABLE TOKEN TRACKING
+                enable_usage_metrics=True,  # Keep metrics enabled for performance monitoring
             ),
-            observers=[token_observer],  # ✅ ATTACH OBSERVER
+            enable_tracing=True,  # ✅ Enable OpenTelemetry tracing (LangFuse)
+            conversation_id=session_id,  # Use session_id as conversation ID for trace correlation
             cancel_on_idle_timeout=False  # MUST be direct parameter to PipelineTask, not in params!
         )
 
         # NOW create the real FlowManager with all parameters
+        from flows.manager import FlowManager
         flow_manager = FlowManager(
             task=task,
             llm=llm,
             context_aggregator=context_aggregator,
             transport=None  # No transport for text mode
         )
-
-        # Update observer to use the real flow_manager
-        token_observer.flow_manager = flow_manager
 
         # Set flow_manager reference in text_output processor (for transcript recording)
         text_output.flow_manager = flow_manager
@@ -1183,6 +1164,9 @@ async def websocket_endpoint(websocket: WebSocket):
         # Run pipeline in background
         pipeline_task = asyncio.create_task(runner.run(task))
 
+        # Note: OpenTelemetry trace ID will be captured by TextOutputProcessor
+        # on the first frame processed (from inside the pipeline trace context)
+
         # Handle incoming WebSocket messages
         try:
             while True:
@@ -1242,6 +1226,35 @@ async def websocket_endpoint(websocket: WebSocket):
                         if call_extractor:
                             # ✅ CRITICAL: Mark call end time before saving
                             call_extractor.end_call()
+
+                            # ✅ Query LangFuse for token usage before saving to Supabase
+                            if os.getenv("ENABLE_TRACING", "false").lower() == "true":
+                                logger.info("📊 Querying LangFuse for token usage...")
+                                try:
+                                    # Wait for LangFuse to process and index spans
+                                    # Cloud processing can take 10-15 seconds for trace to be queryable
+                                    logger.info("⏳ Waiting 15 seconds for LangFuse to index the trace...")
+                                    await asyncio.sleep(15)
+
+                                    # Get OpenTelemetry trace ID from flow state
+                                    otel_trace_id = flow_manager.state.get("otel_trace_id")
+                                    if otel_trace_id:
+                                        logger.info(f"🔍 Using OpenTelemetry trace ID: {otel_trace_id}")
+                                        # Get token usage from LangFuse using the OTel trace ID
+                                        token_data = await get_conversation_tokens(trace_id=otel_trace_id)
+                                    else:
+                                        logger.warning("⚠️ No OpenTelemetry trace ID found in flow state")
+                                        # Try to get from current context (fallback)
+                                        token_data = await get_conversation_tokens()
+
+                                    # Update call_extractor with token data
+                                    call_extractor.llm_token_count = token_data["total_tokens"]
+                                    logger.success(f"✅ Updated call_extractor with LangFuse tokens: {token_data['total_tokens']}")
+
+                                except Exception as e:
+                                    logger.error(f"❌ Failed to retrieve tokens from LangFuse: {e}")
+                                    # Continue with save even if LangFuse query fails
+
                             success = await call_extractor.save_to_database(flow_manager.state)
                             if success:
                                 logger.success(f"✅ Info agent call data saved to Supabase for session: {session_id}")

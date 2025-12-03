@@ -158,6 +158,9 @@ test.py
 test_*.py
 CLAUDE.md
 
+# Langfuse trace files (local testing only)
+test_traces.json/
+
 # MCP Server (Serena)
 .serena/
 
