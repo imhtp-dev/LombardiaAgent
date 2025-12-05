@@ -427,18 +427,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # CREATE PROCESSING TIME TRACKER FOR SLOW RESPONSE DETECTION
         from services.processing_time_tracker import create_processing_time_tracker
-        processing_tracker = create_processing_time_tracker(threshold_seconds=3.0)
-        logger.info("🕐 ProcessingTimeTracker created (3s threshold - speaks if processing slow)")
+        processing_tracker = create_processing_time_tracker()  # Reads from PROCESSING_TIME_THRESHOLD env var
+        logger.info("🕐 ProcessingTimeTracker created (threshold from env - speaks if processing slow)")
 
         # CREATE PIPELINE WITH TRANSCRIPT PROCESSORS AND IDLE HANDLING
         pipeline = Pipeline([
             transport.input(),
             stt,
             user_idle_processor,                      # Add idle detection after STT (20s complete silence)
-            processing_tracker,                       # Add processing time monitor (4s slow response)
             transcript_processor.user(),              # Capture user transcriptions
             context_aggregator.user(),
             llm,
+            processing_tracker,                       # MOVED HERE: After LLM, can see LLM output frames
             tts,
             transport.output(),
             transcript_processor.assistant(),         # Capture assistant responses

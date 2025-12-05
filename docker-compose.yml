@@ -42,6 +42,8 @@ services:
       - OTEL_SERVICE_NAME=pipecat-healthcare-agent-1
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - VERSION=${VERSION:-1.0.0}
+      # Processing Time Tracker Configuration
+      - PROCESSING_TIME_THRESHOLD=${PROCESSING_TIME_THRESHOLD:-4.0}
     env_file:
       - .env
     restart: unless-stopped
@@ -93,6 +95,8 @@ services:
       - OTEL_SERVICE_NAME=pipecat-healthcare-agent-2
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - VERSION=${VERSION:-1.0.0}
+      # Processing Time Tracker Configuration
+      - PROCESSING_TIME_THRESHOLD=${PROCESSING_TIME_THRESHOLD:-4.0}
     env_file:
       - .env
     restart: unless-stopped
@@ -144,6 +148,8 @@ services:
       - OTEL_SERVICE_NAME=pipecat-healthcare-agent-3
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - VERSION=${VERSION:-1.0.0}
+      # Processing Time Tracker Configuration
+      - PROCESSING_TIME_THRESHOLD=${PROCESSING_TIME_THRESHOLD:-4.0}
     env_file:
       - .env
     restart: unless-stopped
