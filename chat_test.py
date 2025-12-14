@@ -1236,14 +1236,20 @@ async def websocket_endpoint(websocket: WebSocket):
                             if os.getenv("ENABLE_TRACING", "false").lower() == "true":
                                 logger.info("📊 Querying LangFuse for token usage...")
                                 try:
+                                    # Wait briefly for Pipecat's BatchSpanProcessor to queue final spans
+                                    # The conversation tracing just ended, spans need time to be queued
+                                    logger.info("⏳ Waiting 1 second for spans to be queued...")
+                                    await asyncio.sleep(1)
+
                                     # CRITICAL: Flush traces to LangFuse BEFORE querying
                                     # Otherwise spans are still in BatchSpanProcessor queue
                                     logger.info("🔄 Flushing traces to LangFuse before token query...")
                                     flush_traces()
 
                                     # Wait for LangFuse to index the traces
-                                    logger.info("⏳ Waiting 3 seconds for LangFuse to index traces...")
-                                    await asyncio.sleep(3)
+                                    # Production needs more time due to cloud indexing latency
+                                    logger.info("⏳ Waiting 5 seconds for LangFuse to index traces...")
+                                    await asyncio.sleep(5)
 
                                     # Get token usage from LangFuse using session_id
                                     # This works because we set langfuse.session.id attribute in PipelineTask
