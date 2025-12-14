@@ -1,6 +1,10 @@
 """
 OpenTelemetry and LangFuse Integration
 Provides tracing capabilities for Pipecat healthcare agent
+
+IMPORTANT: This module uses Pipecat's native setup_tracing() function to ensure
+that Pipecat's internal tracing observers (turn_trace_observer, etc.) use the
+same TracerProvider and exporter as our application code.
 """
 import os
 import asyncio
@@ -14,6 +18,14 @@ from opentelemetry.trace import Status, StatusCode
 from langfuse import Langfuse
 from loguru import logger
 
+# Import Pipecat's native tracing setup
+try:
+    from pipecat.utils.tracing.setup import setup_tracing as pipecat_setup_tracing
+    PIPECAT_TRACING_AVAILABLE = True
+except ImportError:
+    PIPECAT_TRACING_AVAILABLE = False
+    logger.warning("⚠️ Pipecat tracing module not available, using fallback")
+
 # Global storage for mapping conversation_id -> OpenTelemetry trace_id
 _conversation_trace_map: Dict[str, str] = {}
 
@@ -23,7 +35,11 @@ def setup_tracing(
     enable_console: bool = False
 ) -> Optional[trace.Tracer]:
     """
-    Initialize OpenTelemetry tracing with LangFuse OTLP exporter
+    Initialize OpenTelemetry tracing with LangFuse OTLP exporter.
+
+    Uses Pipecat's native setup_tracing() to ensure all Pipecat internal
+    tracing (conversation spans, turn spans, LLM spans) goes through the
+    same TracerProvider and gets exported to LangFuse.
 
     Args:
         service_name: Name of the service for trace identification
@@ -37,59 +53,68 @@ def setup_tracing(
         return None
 
     try:
-        # Create resource with service name and metadata
-        resource = Resource(attributes={
-            SERVICE_NAME: service_name,
-            "deployment.environment": os.getenv("ENVIRONMENT", "production"),
-            "service.version": os.getenv("VERSION", "1.0.0")
-        })
-
-        # Create tracer provider
-        provider = TracerProvider(resource=resource)
-
-        # Configure OTLP exporter for LangFuse
-        # OTLPSpanExporter automatically reads from environment variables:
-        # - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT (signal-specific)
-        # - OTEL_EXPORTER_OTLP_TRACES_HEADERS (signal-specific)
-        # - OTEL_EXPORTER_OTLP_TRACES_PROTOCOL (signal-specific)
         otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
-
         if not otlp_endpoint:
             logger.error("❌ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT not set")
             return None
 
-        # Configure OTLP exporter with extended timeout (default 10s is too short for cloud.langfuse.com)
+        # Configure OTLP exporter with extended timeout for LangFuse cloud
         otlp_exporter = OTLPSpanExporter(
             timeout=30  # 30 seconds timeout (up from default ~5s)
         )
 
-        # Configure BatchSpanProcessor with more generous settings
-        # This helps prevent "Read timed out" errors when exporting to LangFuse
-        batch_processor = BatchSpanProcessor(
-            otlp_exporter,
-            max_queue_size=2048,           # Default: 2048
-            schedule_delay_millis=5000,    # Export every 5 seconds (default: 5000)
-            max_export_batch_size=512,     # Default: 512
-            export_timeout_millis=30000    # 30 second export timeout
-        )
-        provider.add_span_processor(batch_processor)
+        # Use Pipecat's native setup_tracing if available
+        # This ensures Pipecat's internal tracing uses the same exporter
+        if PIPECAT_TRACING_AVAILABLE:
+            logger.info("🔧 Using Pipecat's native tracing setup...")
+            success = pipecat_setup_tracing(
+                service_name=service_name,
+                exporter=otlp_exporter,
+                console_export=enable_console or os.getenv("OTEL_CONSOLE_EXPORT", "false").lower() == "true"
+            )
+            if success:
+                logger.success(f"✅ Pipecat OpenTelemetry tracing initialized: {service_name}")
+                logger.info(f"📊 Exporting to: {otlp_endpoint}")
+                return trace.get_tracer(__name__)
+            else:
+                logger.error("❌ Pipecat tracing setup failed")
+                return None
+        else:
+            # Fallback: Manual setup if Pipecat's tracing module not available
+            logger.info("🔧 Using fallback tracing setup...")
+            resource = Resource(attributes={
+                SERVICE_NAME: service_name,
+                "deployment.environment": os.getenv("ENVIRONMENT", "production"),
+                "service.version": os.getenv("VERSION", "1.0.0")
+            })
 
-        # Optional: Console exporter for debugging
-        if enable_console or os.getenv("OTEL_CONSOLE_EXPORT", "false").lower() == "true":
-            console_exporter = ConsoleSpanExporter()
-            provider.add_span_processor(BatchSpanProcessor(console_exporter))
-            logger.info("🔍 Console trace export enabled")
+            provider = TracerProvider(resource=resource)
 
-        # Set global tracer provider
-        trace.set_tracer_provider(provider)
+            batch_processor = BatchSpanProcessor(
+                otlp_exporter,
+                max_queue_size=2048,
+                schedule_delay_millis=5000,
+                max_export_batch_size=512,
+                export_timeout_millis=30000
+            )
+            provider.add_span_processor(batch_processor)
 
-        logger.success(f"✅ OpenTelemetry tracing initialized: {service_name}")
-        logger.info(f"📊 Exporting to: {otlp_endpoint}")
+            if enable_console or os.getenv("OTEL_CONSOLE_EXPORT", "false").lower() == "true":
+                console_exporter = ConsoleSpanExporter()
+                provider.add_span_processor(BatchSpanProcessor(console_exporter))
+                logger.info("🔍 Console trace export enabled")
 
-        return trace.get_tracer(__name__)
+            trace.set_tracer_provider(provider)
+
+            logger.success(f"✅ OpenTelemetry tracing initialized (fallback): {service_name}")
+            logger.info(f"📊 Exporting to: {otlp_endpoint}")
+
+            return trace.get_tracer(__name__)
 
     except Exception as e:
         logger.error(f"❌ Failed to initialize tracing: {e}")
+        import traceback
+        logger.error(f"❌ Full error: {traceback.format_exc()}")
         return None
 
 
