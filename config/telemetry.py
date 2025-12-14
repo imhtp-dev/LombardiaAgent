@@ -4,7 +4,7 @@ Provides tracing capabilities for Pipecat healthcare agent
 """
 import os
 import asyncio
-from typing import Optional
+from typing import Optional, Dict
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
@@ -13,6 +13,9 @@ from opentelemetry.sdk.resources import Resource, SERVICE_NAME
 from opentelemetry.trace import Status, StatusCode
 from langfuse import Langfuse
 from loguru import logger
+
+# Global storage for mapping conversation_id -> OpenTelemetry trace_id
+_conversation_trace_map: Dict[str, str] = {}
 
 
 def setup_tracing(
@@ -55,9 +58,21 @@ def setup_tracing(
             logger.error("❌ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT not set")
             return None
 
-        # Let exporter auto-read from env vars (no manual config needed)
-        otlp_exporter = OTLPSpanExporter()
-        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        # Configure OTLP exporter with extended timeout (default 10s is too short for cloud.langfuse.com)
+        otlp_exporter = OTLPSpanExporter(
+            timeout=30  # 30 seconds timeout (up from default ~5s)
+        )
+
+        # Configure BatchSpanProcessor with more generous settings
+        # This helps prevent "Read timed out" errors when exporting to LangFuse
+        batch_processor = BatchSpanProcessor(
+            otlp_exporter,
+            max_queue_size=2048,           # Default: 2048
+            schedule_delay_millis=5000,    # Export every 5 seconds (default: 5000)
+            max_export_batch_size=512,     # Default: 512
+            export_timeout_millis=30000    # 30 second export timeout
+        )
+        provider.add_span_processor(batch_processor)
 
         # Optional: Console exporter for debugging
         if enable_console or os.getenv("OTEL_CONSOLE_EXPORT", "false").lower() == "true":
@@ -109,7 +124,7 @@ def flush_traces():
 def get_current_trace_id() -> Optional[str]:
     """
     Get the current OpenTelemetry trace ID in hex format (for LangFuse queries)
-    
+
     Returns:
         Trace ID as hex string (e.g., 'c04dca2bf957960bf2b4e9a7f8c8bb98') or None if no active trace
     """
@@ -121,6 +136,51 @@ def get_current_trace_id() -> Optional[str]:
     return None
 
 
+def register_conversation_trace(conversation_id: str, trace_id: str) -> None:
+    """
+    Register the mapping between a conversation_id (session_id) and its OpenTelemetry trace_id.
+
+    This should be called when the pipeline starts and a trace is created, so that later
+    we can look up the correct trace ID when querying LangFuse.
+
+    Args:
+        conversation_id: The session/conversation ID used in the application
+        trace_id: The actual OpenTelemetry trace ID in hex format
+    """
+    _conversation_trace_map[conversation_id] = trace_id
+    logger.info(f"📊 Registered trace mapping: conversation_id={conversation_id} -> trace_id={trace_id}")
+
+
+def get_trace_id_for_conversation(conversation_id: str) -> Optional[str]:
+    """
+    Look up the OpenTelemetry trace ID for a given conversation_id.
+
+    Args:
+        conversation_id: The session/conversation ID used in the application
+
+    Returns:
+        The OpenTelemetry trace ID in hex format, or None if not found
+    """
+    trace_id = _conversation_trace_map.get(conversation_id)
+    if trace_id:
+        logger.debug(f"📊 Found trace_id={trace_id} for conversation_id={conversation_id}")
+    else:
+        logger.warning(f"⚠️ No trace_id found for conversation_id={conversation_id}")
+    return trace_id
+
+
+def cleanup_conversation_trace(conversation_id: str) -> None:
+    """
+    Remove the trace mapping for a conversation when it ends.
+
+    Args:
+        conversation_id: The session/conversation ID to clean up
+    """
+    if conversation_id in _conversation_trace_map:
+        del _conversation_trace_map[conversation_id]
+        logger.debug(f"🗑️ Cleaned up trace mapping for conversation_id={conversation_id}")
+
+
 def get_langfuse_client() -> Langfuse:
     """Get initialized LangFuse client for API queries"""
     return Langfuse(
@@ -130,39 +190,37 @@ def get_langfuse_client() -> Langfuse:
     )
 
 
-async def get_conversation_tokens(trace_id: Optional[str] = None) -> dict:
+async def get_conversation_tokens(session_id: Optional[str] = None) -> dict:
     """
-    Query LangFuse API to get total token usage for a conversation
-    
+    Query LangFuse API to get total token usage for a conversation session.
+
+    This function queries LangFuse by session_id (which we set via langfuse.session.id
+    attribute in PipelineTask) to find all traces for the conversation and sum up tokens.
+
     Args:
-        trace_id: Optional OpenTelemetry trace ID (hex format).
-                 If not provided, will try to get from current trace context.
-    
+        session_id: The session/conversation ID used in the application.
+                   This matches the langfuse.session.id we set in PipelineTask.
+
     Returns:
         dict with keys: prompt_tokens, completion_tokens, total_tokens
     """
     try:
-        # If trace_id not provided, try to get from current context
-        if not trace_id:
-            current_span = trace.get_current_span()
-            if current_span and current_span.get_span_context().is_valid:
-                # Convert trace ID to hex format (LangFuse expects this)
-                trace_id = format(current_span.get_span_context().trace_id, '032x')
-                logger.info(f"🔍 Retrieved trace ID from context: {trace_id}")
-            else:
-                logger.warning("⚠️ No valid trace context found")
-                return {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0
-                }
-        
+        if not session_id:
+            logger.warning("⚠️ No session_id provided for token query")
+            return {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+
+        logger.info(f"🔍 Querying LangFuse for tokens with session_id: {session_id}")
+
         # Run synchronous LangFuse API call in thread pool
         loop = asyncio.get_event_loop()
         token_data = await loop.run_in_executor(
             None,
-            _get_tokens_sync,
-            trace_id
+            _get_tokens_by_session_sync,
+            session_id
         )
 
         logger.success(f"✅ Retrieved tokens from LangFuse: {token_data['total_tokens']}")
@@ -177,10 +235,122 @@ async def get_conversation_tokens(trace_id: Optional[str] = None) -> dict:
         }
 
 
+def _get_tokens_by_session_sync(session_id: str) -> dict:
+    """
+    Synchronous helper to query LangFuse API by session_id.
+    Finds all traces for the session and sums up token usage.
+
+    Args:
+        session_id: The session ID that was set via langfuse.session.id attribute
+    """
+    try:
+        client = get_langfuse_client()
+
+        # Query traces by session_id
+        logger.info(f"🔍 Querying LangFuse traces with session_id: {session_id}")
+
+        # Use the trace.list() API to find traces by session_id
+        traces_response = client.api.trace.list(
+            session_id=session_id,
+            limit=100  # Get up to 100 traces for this session
+        )
+
+        if not traces_response or not hasattr(traces_response, 'data') or not traces_response.data:
+            logger.warning(f"⚠️ No traces found for session_id: {session_id}")
+            return {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+
+        logger.info(f"📊 Found {len(traces_response.data)} traces for session_id: {session_id}")
+
+        # Sum tokens across all traces
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+
+        for trace_summary in traces_response.data:
+            # Get the full trace details to access observations
+            try:
+                trace_data = client.api.trace.get(trace_summary.id)
+                tokens = _extract_tokens_from_trace(trace_data)
+                total_prompt_tokens += tokens["prompt_tokens"]
+                total_completion_tokens += tokens["completion_tokens"]
+                logger.debug(f"📊 Trace {trace_summary.id}: prompt={tokens['prompt_tokens']}, completion={tokens['completion_tokens']}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to get trace {trace_summary.id}: {e}")
+
+        total_tokens = total_prompt_tokens + total_completion_tokens
+        logger.info(f"📊 Session total tokens: prompt={total_prompt_tokens}, completion={total_completion_tokens}, total={total_tokens}")
+
+        return {
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_tokens
+        }
+
+    except Exception as e:
+        logger.error(f"❌ LangFuse API session query error: {e}")
+        import traceback
+        logger.error(f"❌ Full error: {traceback.format_exc()}")
+        return {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0
+        }
+
+
+def _extract_tokens_from_trace(trace_data) -> dict:
+    """
+    Extract token counts from a single trace's observations.
+
+    Args:
+        trace_data: LangFuse trace data object with observations
+
+    Returns:
+        dict with prompt_tokens, completion_tokens, total_tokens
+    """
+    prompt_tokens = 0
+    completion_tokens = 0
+
+    if not hasattr(trace_data, 'observations'):
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    for observation in trace_data.observations:
+        # CRITICAL: LangFuse uses uppercase "GENERATION" not lowercase "generation"
+        if observation.type == "GENERATION":
+            input_tokens = 0
+            output_tokens = 0
+
+            # Strategy 1: Direct attributes
+            if hasattr(observation, 'promptTokens') and observation.promptTokens:
+                input_tokens = observation.promptTokens
+            if hasattr(observation, 'completionTokens') and observation.completionTokens:
+                output_tokens = observation.completionTokens
+
+            # Strategy 2: Nested usage object
+            if input_tokens == 0 or output_tokens == 0:
+                usage = getattr(observation, 'usage', None)
+                if usage and isinstance(usage, dict):
+                    if input_tokens == 0:
+                        input_tokens = usage.get("input", 0) or usage.get("promptTokens", 0) or usage.get("input_tokens", 0) or 0
+                    if output_tokens == 0:
+                        output_tokens = usage.get("output", 0) or usage.get("completionTokens", 0) or usage.get("output_tokens", 0) or 0
+
+            prompt_tokens += input_tokens
+            completion_tokens += output_tokens
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens
+    }
+
+
 def _get_tokens_sync(trace_id: str) -> dict:
     """
-    Synchronous helper to query LangFuse API
-    (LangFuse SDK is synchronous, so we run in thread pool)
+    DEPRECATED: Use _get_tokens_by_session_sync instead.
+    Synchronous helper to query LangFuse API by trace_id.
 
     Args:
         trace_id: OpenTelemetry trace ID in hex format (e.g., 'c04dca2bf957960bf2b4e9a7f8c8bb98')

@@ -45,7 +45,12 @@ from pipecat.transports.websocket.fastapi import (
 )
 
 # OpenTelemetry & LangFuse
-from config.telemetry import setup_tracing, get_tracer, get_conversation_tokens, flush_traces
+from config.telemetry import (
+    setup_tracing,
+    get_tracer,
+    get_conversation_tokens,
+    flush_traces,
+)
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
@@ -477,6 +482,12 @@ async def websocket_endpoint(websocket: WebSocket):
             ),
             enable_tracing=True,  # ✅ Enable OpenTelemetry tracing (LangFuse)
             conversation_id=session_id,  # Use session_id as conversation ID for trace correlation
+            # ✅ Add langfuse.session.id to map our session_id to LangFuse sessions
+            # This allows us to query traces by session_id in the LangFuse API
+            additional_span_attributes={
+                "langfuse.session.id": session_id,
+                "langfuse.user.id": caller_phone or "unknown",
+            },
             idle_timeout_secs=600  # 10 minutes - allows for long API calls (sorting, slot search)
         )
 
@@ -721,8 +732,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     if os.getenv("ENABLE_TRACING", "false").lower() == "true":
                         logger.info("📊 Querying LangFuse for token usage...")
                         try:
-                            # Wait briefly for LangFuse to process final spans
-                            await asyncio.sleep(2)
+                            # CRITICAL: Flush traces to LangFuse BEFORE querying
+                            # Otherwise spans are still in BatchSpanProcessor queue
+                            logger.info("🔄 Flushing traces to LangFuse before token query...")
+                            flush_traces()
+
+                            # Wait for LangFuse to index the traces
+                            logger.info("⏳ Waiting 3 seconds for LangFuse to index traces...")
+                            await asyncio.sleep(3)
 
                             # Get token usage from LangFuse
                             token_data = await get_conversation_tokens(session_id)

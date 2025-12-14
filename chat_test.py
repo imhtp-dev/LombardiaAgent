@@ -66,7 +66,7 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 
 # OpenTelemetry for LangFuse tracing
-from config.telemetry import setup_tracing, get_tracer, get_conversation_tokens, get_current_trace_id
+from config.telemetry import setup_tracing, get_tracer, get_conversation_tokens, flush_traces
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
@@ -1085,6 +1085,11 @@ async def websocket_endpoint(websocket: WebSocket):
             ),
             enable_tracing=True,  # ✅ Enable OpenTelemetry tracing (LangFuse)
             conversation_id=session_id,  # Use session_id as conversation ID for trace correlation
+            # ✅ Add langfuse.session.id to map our session_id to LangFuse sessions
+            additional_span_attributes={
+                "langfuse.session.id": session_id,
+                "langfuse.user.id": "chat_test_user",
+            },
             cancel_on_idle_timeout=False  # MUST be direct parameter to PipelineTask, not in params!
         )
 
@@ -1225,27 +1230,24 @@ async def websocket_endpoint(websocket: WebSocket):
                         call_extractor = flow_manager.state.get("call_extractor")
                         if call_extractor:
                             # ✅ CRITICAL: Mark call end time before saving
-                            call_extractor.end_call()
+                            call_extractor.end_call() 
 
                             # ✅ Query LangFuse for token usage before saving to Supabase
                             if os.getenv("ENABLE_TRACING", "false").lower() == "true":
                                 logger.info("📊 Querying LangFuse for token usage...")
                                 try:
-                                    # Wait for LangFuse to process and index spans
-                                    # Cloud processing can take 10-15 seconds for trace to be queryable
-                                    logger.info("⏳ Waiting 15 seconds for LangFuse to index the trace...")
-                                    await asyncio.sleep(15)
+                                    # CRITICAL: Flush traces to LangFuse BEFORE querying
+                                    # Otherwise spans are still in BatchSpanProcessor queue
+                                    logger.info("🔄 Flushing traces to LangFuse before token query...")
+                                    flush_traces()
 
-                                    # Get OpenTelemetry trace ID from flow state
-                                    otel_trace_id = flow_manager.state.get("otel_trace_id")
-                                    if otel_trace_id:
-                                        logger.info(f"🔍 Using OpenTelemetry trace ID: {otel_trace_id}")
-                                        # Get token usage from LangFuse using the OTel trace ID
-                                        token_data = await get_conversation_tokens(trace_id=otel_trace_id)
-                                    else:
-                                        logger.warning("⚠️ No OpenTelemetry trace ID found in flow state")
-                                        # Try to get from current context (fallback)
-                                        token_data = await get_conversation_tokens()
+                                    # Wait for LangFuse to index the traces
+                                    logger.info("⏳ Waiting 3 seconds for LangFuse to index traces...")
+                                    await asyncio.sleep(3)
+
+                                    # Get token usage from LangFuse using session_id
+                                    # This works because we set langfuse.session.id attribute in PipelineTask
+                                    token_data = await get_conversation_tokens(session_id)
 
                                     # Update call_extractor with token data
                                     call_extractor.llm_token_count = token_data["total_tokens"]
