@@ -140,7 +140,7 @@ async def report_to_talkdesk(flow_manager, call_extractor):
         call_data = {
             "interaction_id": interaction_id,
             "sentiment": analysis.get("sentiment", "neutral"),
-            "service": f"2|2|{analysis.get('service', '5')}",
+            "service": f"2|2|5",
             "summary": analysis.get("summary", "")[:250],  # Max 250 chars
             "duration_seconds": int(call_extractor._calculate_duration() or 0)
         }
