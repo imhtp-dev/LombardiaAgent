@@ -36,7 +36,7 @@ venv.bak/
 .spyderproject
 .spyproject
 .ropeproject
-.claude/
+.claude/settings.local.json
 
 # Testing and Coverage
 .coverage
@@ -147,8 +147,6 @@ cache/
 # Azure Storage local files
 20*_*.json
 
-# Claude workspace files
-.claude/
 
 # Extra folders that shouldn't be committed
 extra/
@@ -156,7 +154,6 @@ extra/
 # Development and testing files
 test.py
 test_*.py
-CLAUDE.md
 
 # Langfuse trace files (local testing only)
 test_traces.json/
@@ -167,3 +164,7 @@ test_traces.json/
 # Development helper files
 .envrc
 activate.sh
+
+
+# External reference repos (cloned for Claude to research)
+_refs/

@@ -50,11 +50,6 @@ class ProcessingTimeTracker(FrameProcessor):
         """
         await super().process_frame(frame, direction)
 
-        # DEBUG: Log all frame types to understand what we can detect
-        frame_type = type(frame).__name__
-        if 'LLM' in frame_type or 'TTS' in frame_type or 'Text' in frame_type:
-            logger.debug(f"🔍 ProcessingTimeTracker saw frame: {frame_type} (direction: {direction})")
-
         # User stopped speaking - START TIMER IMMEDIATELY
         # We're now AFTER LLM so we can't see TranscriptionFrame anymore
         # We start timer here and LLMFullResponseStartFrame will stop it if LLM responds quickly
@@ -76,7 +71,6 @@ class ProcessingTimeTracker(FrameProcessor):
             if not self._warning_spoken and not self._bot_is_responding:
                 # LLM is generating actual text response - bot is responding!
                 self._bot_is_responding = True  # Set flag IMMEDIATELY (no await, no lock)
-                logger.debug("⏱️ LLM generating text response (fast response, no processing message)")
                 await self._stop_timer()  # Then stop timer
             # else: We already stopped timer or injected "Attendi..." message
 
@@ -87,12 +81,10 @@ class ProcessingTimeTracker(FrameProcessor):
             if self._waiting_for_real_response:
                 # This is the bot's actual response following our "please wait" message
                 self._bot_is_responding = True  # Set flag FIRST (no await, no lock)
-                logger.debug("⏱️ Bot's real response detected after processing message")
                 await self._stop_timer()  # Then do lock operations
             elif not self._warning_spoken:
                 # This is the bot's response and we haven't injected a message yet
                 self._bot_is_responding = True  # Set flag FIRST (no await, no lock)
-                logger.debug("⏱️ Bot response detected (fast response, no processing message needed)")
                 await self._stop_timer()  # Then do lock operations
             # else: This is our own injected "Attendi..." message - DON'T mark bot as responding yet
 

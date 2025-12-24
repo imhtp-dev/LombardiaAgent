@@ -191,6 +191,49 @@ class CerbaAPIService:
             logger.error(f"Failed to get health centers: {e}")
             raise CerbaAPIError(f"Failed to retrieve health centers: {str(e)}")
 
+    def search_patient_by_phone(self, phone: str) -> List[Dict[str, Any]]:
+        """
+        Search for patients by phone number using Cerba API
+        
+        Args:
+            phone: Patient's phone number (with or without country code)
+            
+        Returns:
+            List of patient records matching the phone number.
+            Each record contains: uuid, name, surname, fiscal_code, 
+            date_of_birth, phone, email
+            
+        Raises:
+            CerbaAPIError: If API request fails
+        """
+        if not phone:
+            logger.warning("search_patient_by_phone called with empty phone")
+            return []
+        
+        params = {"phone": phone}
+        
+        try:
+            response = self._make_request("search/patient", params)
+            
+            # Response is an array of patient objects
+            if isinstance(response, list):
+                logger.info(f"Found {len(response)} patient(s) for phone: {phone[-4:] if len(phone) > 4 else '***'}")
+                return response
+            else:
+                logger.warning(f"Unexpected response format from search/patient: {type(response)}")
+                return []
+                
+        except CerbaAPIError as e:
+            # Log but don't crash - patient not found is not an error
+            if "404" in str(e) or "not found" in str(e).lower():
+                logger.info(f"No patient found for phone: {phone[-4:] if len(phone) > 4 else '***'}")
+                return []
+            logger.error(f"Failed to search patient by phone: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error searching patient: {e}")
+            raise CerbaAPIError(f"Failed to search patient: {str(e)}")
+
 # Global API service instance
 cerba_api = CerbaAPIService()
 

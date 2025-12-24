@@ -10,6 +10,36 @@ from services.config import config
 from services.auth import auth_service
 
 
+
+def prepare_booking_data(booking_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Prepare and normalize booking data before sending to API
+    
+    - Normalizes gender to uppercase (m -> M, f -> F)
+    - Adds sms_notification with default True if not provided
+    
+    Args:
+        booking_data: Raw booking data
+        
+    Returns:
+        Normalized booking data ready for API
+    """
+    # Create a copy to avoid modifying the original
+    prepared_data = booking_data.copy()
+    
+    # Normalize patient gender to uppercase
+    if "patient" in prepared_data:
+        patient = prepared_data["patient"].copy()
+        if "gender" in patient and patient["gender"]:
+            patient["gender"] = patient["gender"].upper()
+        prepared_data["patient"] = patient
+    
+    # Add sms_notification with default True if not provided
+    if "sms_notification" not in prepared_data:
+        prepared_data["sms_notification"] = True
+    
+    return prepared_data
+
 def create_booking(booking_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Create a booking using the POST amb/booking API
@@ -32,6 +62,9 @@ def create_booking(booking_data: Dict[str, Any]) -> Dict[str, Any]:
                 "booking": None
             }
 
+        # Prepare booking data (normalize gender, add sms_notification default)
+        prepared_booking_data = prepare_booking_data(booking_data)
+
         # API endpoint
         url = f"{config.CERBA_BASE_URL}/amb/booking"
 
@@ -42,12 +75,12 @@ def create_booking(booking_data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
         logger.info(f"Creating booking at: {url}")
-        logger.debug(f"Booking data: {booking_data}")
+        logger.debug(f"Booking data: {prepared_booking_data}")
 
         # Make POST request
         response = requests.post(
             url,
-            json=booking_data,
+            json=prepared_booking_data,
             headers=headers,
             timeout=config.REQUEST_TIMEOUT
         )
@@ -183,14 +216,21 @@ def validate_booking_data(booking_data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         # Check required patient fields
         patient = booking_data.get("patient", {})
-        required_patient_fields = ["name", "surname", "email", "phone", "date_of_birth", "fiscal_code", "gender"]
+        
+        # If patient.uuid is provided, skip other patient field validation
+        # (API will use existing patient record)
+        if patient.get("uuid"):
+            logger.info("Patient UUID provided - skipping patient field validation")
+        else:
+            # Validate all required patient fields for new patients
+            required_patient_fields = ["name", "surname", "email", "phone", "date_of_birth", "fiscal_code", "gender"]
 
-        for field in required_patient_fields:
-            if not patient.get(field):
-                return {
-                    "valid": False,
-                    "message": f"Missing patient {field}"
-                }
+            for field in required_patient_fields:
+                if not patient.get(field):
+                    return {
+                        "valid": False,
+                        "message": f"Missing patient {field}"
+                    }
 
         # Check booking type
         if not booking_data.get("booking_type"):

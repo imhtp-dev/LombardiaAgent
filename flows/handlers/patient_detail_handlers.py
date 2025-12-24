@@ -7,77 +7,7 @@ from loguru import logger
 
 from pipecat_flows import FlowManager, NodeConfig, FlowArgs
 from services.call_logger import call_logger
-from services.sms_service import send_booking_confirmation_sms
 
-
-async def send_booking_confirmation_sms_async(booking_response: Dict, booking_data: Dict, selected_services: list, booked_slots: list) -> None:
-    """
-    Send SMS confirmation after successful booking creation
-
-    Args:
-        booking_response: Response from booking API
-        booking_data: Original booking data with patient info
-        selected_services: List of selected services
-        booked_slots: List of booked time slots
-    """
-    try:
-        # Extract booking details
-        booking_info = booking_response.get("booking", {})
-        booking_id = booking_info.get("code", "N/A")
-
-        # Get patient info
-        patient_info = booking_data.get("patient", {})
-        patient_name = patient_info.get('name', '').strip()  # Only first name for SMS greeting
-        patient_phone = patient_info.get("phone", "")
-
-        # Get center name from flow state (would need flow_manager for this)
-        center_name = "Cerba Healthcare"  # Fallback
-
-        # Format all appointments for SMS (like booking completion message)
-        from services.timezone_utils import utc_to_italian_display
-        appointments_list = []
-
-        for slot in booked_slots:
-            service_name = slot.get('service_name', 'Servizio')
-            italian_datetime = utc_to_italian_display(slot['start_time'])
-
-            if italian_datetime:
-                booking_date = italian_datetime.split(' ')[0]
-                booking_time = italian_datetime.split(' ')[1] if len(italian_datetime.split(' ')) > 1 else "TBD"
-            else:
-                booking_date = "TBD"
-                booking_time = "TBD"
-
-            appointments_list.append({
-                "service_name": service_name,
-                "date": booking_date,
-                "time": booking_time
-            })
-
-        logger.info(f"📱 SMS will include {len(appointments_list)} appointments")
-
-        # Prepare SMS data with all appointments
-        sms_data = {
-            "patient_name": patient_name,
-            "patient_phone": patient_phone,
-            "center_name": center_name,
-            "booking_id": booking_id,
-            "appointments": appointments_list  # List of all appointments
-        }
-
-        logger.info(f"📱 Sending SMS confirmation to {patient_phone} for booking {booking_id}")
-
-        # Send SMS (async)
-        sms_response = await send_booking_confirmation_sms(sms_data)
-
-        if sms_response.success:
-            logger.success(f"✅ SMS sent successfully! SID: {sms_response.message_sid}")
-        else:
-            logger.error(f"❌ SMS failed to send: {sms_response.error_message}")
-
-    except Exception as e:
-        logger.error(f"❌ SMS sending error: {e}")
-        # Don't fail the booking if SMS fails
 
 
 async def start_email_collection_with_stt_switch(args: FlowArgs, flow_manager: FlowManager) -> Tuple[Dict[str, Any], NodeConfig]:
@@ -509,7 +439,10 @@ async def confirm_details_and_create_booking(args: FlowArgs, flow_manager: FlowM
             "patient_gender": patient_gender,
             "patient_dob": patient_dob,
             "reminder_auth": reminder_auth,
-            "marketing_auth": marketing_auth
+            "marketing_auth": marketing_auth,
+            # Include patient UUID for existing patients (API optimization)
+            "patient_found_in_db": patient_found_in_db,
+            "patient_db_id": flow_manager.state.get("patient_db_id", "")
         }
 
         # Create intermediate node with pre_actions for immediate TTS
@@ -564,6 +497,9 @@ async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: 
         patient_dob = params["patient_dob"]
         reminder_auth = params["reminder_auth"]
         marketing_auth = params["marketing_auth"]
+        # Get patient UUID for existing patients
+        patient_found_in_db = params.get("patient_found_in_db", False)
+        patient_db_id = params.get("patient_db_id", "")
 
         logger.info(f"🔍 DEBUG: Extracted booking parameters:")
         logger.info(f"   - selected_services: {selected_services}")
@@ -577,13 +513,20 @@ async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: 
         logger.info(f"   - patient_dob: '{patient_dob}'")
         logger.info(f"   - reminder_auth: {reminder_auth}")
         logger.info(f"   - marketing_auth: {marketing_auth}")
+        logger.info(f"   - patient_found_in_db: {patient_found_in_db}")
+        logger.info(f"   - patient_db_id: '{patient_db_id}'")
 
         # Import and call booking service
         from services.booking_api import create_booking
 
-        # Prepare booking data
-        booking_data = {
-            "patient": {
+        # Prepare booking data - ONLY UUID for existing patients, full details for new patients
+        if patient_found_in_db and patient_db_id:
+            # Existing patient: API only needs UUID (backend has all patient info)
+            patient_data = {"uuid": patient_db_id}
+            logger.info(f"✅ Using simplified payload with patient UUID only: {patient_db_id}")
+        else:
+            # New patient: Send all required details
+            patient_data = {
                 "name": patient_name,
                 "surname": patient_surname,
                 "email": patient_email,
@@ -591,7 +534,11 @@ async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: 
                 "date_of_birth": patient_dob,
                 "fiscal_code": patient_fiscal_code,
                 "gender": patient_gender.upper()
-            },
+            }
+            logger.info("📝 Creating booking for new patient with full details")
+
+        booking_data = {
+            "patient": patient_data,
             "booking_type": "private",
             "health_services": [],
             "reminder_authorization": reminder_auth,
@@ -639,9 +586,6 @@ async def perform_booking_creation_and_transition(args: FlowArgs, flow_manager: 
             flow_manager.state["final_booking"] = booking_response["booking"]
 
             logger.success(f"🎉 Booking created successfully: {booking_response['booking'].get('code', 'N/A')}")
-
-            # Send SMS confirmation after successful booking
-            await send_booking_confirmation_sms_async(booking_response, booking_data, selected_services, booked_slots)
 
             from flows.nodes.booking_completion import create_booking_success_final_node
             return {

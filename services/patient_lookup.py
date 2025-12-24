@@ -1,43 +1,14 @@
 """
 Patient Lookup Service
-Handles phone+DOB normalization and patient disambiguation for existing records
+Handles phone+DOB normalization and patient lookup via Cerba API
+
+Uses the Cerba API GET search/patient endpoint to find existing patients
+by phone number and verify their date of birth.
 """
 
 import re
 from typing import Dict, Any, Optional, List
 from loguru import logger
-
-
-# In-memory patient store for test mode
-PATIENTS_DB = [
-    {
-        "id": "p1",
-        "phone": "+393333319326",
-        "first_name": "Rudy",
-        "last_name": "Crapella",
-        "dob": "1979-06-19",
-        "fiscal_code": "FC10001",
-        "email": "rudy.crapella@gmail.com"
-    },
-    {
-        "id": "p2",
-        "phone": "+393336164267",
-        "first_name": "Steffano",
-        "last_name": "Tacchi",
-        "dob": "1990-01-01",
-        "fiscal_code": "FC20002",
-        "email": "stefano.tacchi@cerbahealthcare.it"
-    },
-    {
-        "id": "p3",
-        "phone": "+393356441141",
-        "first_name": "Stefano",
-        "last_name": "Massaro",
-        "dob": "1976-07-11",
-        "fiscal_code": "MSSSFN76L11F205N",
-        "email": "stefano.massaro@cerbahealthcare.it"
-    }
-]
 
 
 def normalize_phone(raw: str) -> Optional[str]:
@@ -114,7 +85,7 @@ def get_patient_id_for_logging(patient: Dict[str, Any]) -> str:
 
 def lookup_by_phone_and_dob(phone: str, dob: str) -> Optional[Dict[str, Any]]:
     """
-    Find patient record by phone number and date of birth
+    Find patient record by phone number and date of birth using Cerba API
 
     Args:
         phone: Caller's phone number (any format)
@@ -130,20 +101,48 @@ def lookup_by_phone_and_dob(phone: str, dob: str) -> Optional[Dict[str, Any]]:
         logger.warning(f"📞 Lookup failed: invalid phone ({phone or ''}) or DOB")
         return None
 
-    logger.info(f"🔍 Looking up patient: phone={normalized_phone}, dob={normalized_dob}")
+    logger.info(f"🔍 Looking up patient via Cerba API: phone={normalized_phone[-4:] if len(normalized_phone) > 4 else '***'}, dob={normalized_dob}")
 
-    # Search through patients database
-    for patient in PATIENTS_DB:
-        patient_phone = normalize_phone(patient.get('phone', ''))
-        patient_dob = normalize_dob(patient.get('dob', ''))
-
-        if patient_phone == normalized_phone and patient_dob == normalized_dob:
-            patient_id = get_patient_id_for_logging(patient)
-            logger.success(f"✅ Patient found: ID={patient_id}, name={patient.get('first_name', '')} {patient.get('last_name', '')}")
-            return patient.copy()  # Return copy to avoid accidental modifications
-
-    logger.info(f"❌ No patient found for phone={normalized_phone}")
-    return None
+    try:
+        # Import here to avoid circular imports
+        from services.cerba_api import cerba_api
+        
+        # Call Cerba API to search by phone
+        patients = cerba_api.search_patient_by_phone(normalized_phone)
+        
+        if not patients:
+            logger.info(f"❌ No patient found in Cerba API for phone={normalized_phone[-4:] if len(normalized_phone) > 4 else '***'}")
+            return None
+        
+        # Filter by DOB to find exact match
+        for patient in patients:
+            # API returns date_of_birth in YYYY-MM-DD format
+            patient_dob = normalize_dob(patient.get('date_of_birth', ''))
+            
+            if patient_dob == normalized_dob:
+                # Transform API response to expected format
+                transformed_patient = {
+                    'id': patient.get('uuid', ''),
+                    'first_name': patient.get('name', ''),
+                    'last_name': patient.get('surname', ''),
+                    'dob': patient.get('date_of_birth', ''),
+                    'fiscal_code': patient.get('fiscal_code', ''),
+                    'phone': patient.get('phone', ''),
+                    'email': patient.get('email', '')
+                }
+                
+                patient_id = get_patient_id_for_logging(transformed_patient)
+                logger.success(f"✅ Patient found via Cerba API: ID={patient_id}, name={transformed_patient.get('first_name', '')} {transformed_patient.get('last_name', '')}")
+                return transformed_patient
+        
+        # Phone found but DOB doesn't match
+        logger.info(f"❌ Phone found but DOB mismatch. Found {len(patients)} patient(s) but none match DOB={normalized_dob}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Error during Cerba API patient lookup: {e}")
+        # Return None on error - don't crash the flow
+        return None
 
 
 def populate_patient_state(flow_manager, patient: Dict[str, Any]) -> None:

@@ -17,6 +17,81 @@ from openai import AsyncOpenAI
 from info_agent.config.settings import info_settings
 from info_agent.api.database import db
 
+# Valid enum values for call categorization
+VALID_ESITO_CHIAMATA = ["COMPLETATA", "TRASFERITA", "NON COMPLETATA"]
+
+VALID_MOTIVAZIONE = {
+    "COMPLETATA": ["Info fornite", "Pren. effettuata"],
+    "TRASFERITA": ["Mancata comprensione", "Argomento sconosciuto", "Richiesta paziente", "Prenotazione"],
+    "NON COMPLETATA": ["Interrotta dal paziente", "Fuori orario", "Problema Tecnico"]
+}
+
+ALL_MOTIVAZIONI = [m for motiv_list in VALID_MOTIVAZIONE.values() for m in motiv_list]
+
+
+def validate_and_fix_llm_output(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate LLM output and fix invalid values.
+    Ensures esito_chiamata and motivazione are valid enum values.
+    """
+    esito = analysis.get("esito_chiamata", "")
+    motivazione = analysis.get("motivazione", "")
+
+    # Normalize common LLM variations (LLM adds periods to Italian abbreviations)
+    motivazione_fixes = {
+        "Info. fornite": "Info fornite",
+        "Pren. effettuata": "Pren. effettuata",  # This one IS correct with period
+        "info fornite": "Info fornite",
+        "INFO FORNITE": "Info fornite",
+    }
+    if motivazione in motivazione_fixes:
+        logger.debug(f"🔧 Normalizing motivazione '{motivazione}' → '{motivazione_fixes[motivazione]}'")
+        motivazione = motivazione_fixes[motivazione]
+        analysis["motivazione"] = motivazione
+
+    # Validate esito_chiamata
+    if esito not in VALID_ESITO_CHIAMATA:
+        logger.warning(f"⚠️ Invalid esito_chiamata '{esito}', defaulting to 'COMPLETATA'")
+        esito = "COMPLETATA"
+        analysis["esito_chiamata"] = esito
+
+    # Validate motivazione matches esito
+    valid_for_esito = VALID_MOTIVAZIONE.get(esito, [])
+    if motivazione not in valid_for_esito:
+        # Try to find closest match in ALL motivazioni
+        if motivazione in ALL_MOTIVAZIONI:
+            # Valid motivazione but wrong esito - fix esito to match
+            for e, motiv_list in VALID_MOTIVAZIONE.items():
+                if motivazione in motiv_list:
+                    logger.warning(f"⚠️ Fixing esito_chiamata from '{esito}' to '{e}' to match motivazione '{motivazione}'")
+                    analysis["esito_chiamata"] = e
+                    break
+        else:
+            # Invalid motivazione - use default for esito
+            default_motiv = valid_for_esito[0] if valid_for_esito else "Info fornite"
+            logger.warning(f"⚠️ Invalid motivazione '{motivazione}', defaulting to '{default_motiv}'")
+            analysis["motivazione"] = default_motiv
+
+    # Validate action
+    valid_actions = ["completed", "question", "transfer", "book"]
+    if analysis.get("action") not in valid_actions:
+        analysis["action"] = "completed"
+
+    # Validate sentiment
+    valid_sentiments = ["positive", "neutral", "negative"]
+    if analysis.get("sentiment") not in valid_sentiments:
+        analysis["sentiment"] = "neutral"
+
+    # Validate service
+    valid_services = ["1", "2", "3", "4", "5"]
+    if str(analysis.get("service", "5")) not in valid_services:
+        analysis["service"] = "5"
+    else:
+        analysis["service"] = str(analysis.get("service", "5"))
+
+    return analysis
+
+
 # OpenAI client - will be initialized lazily when needed
 openai_client = None
 
@@ -252,32 +327,48 @@ class CallDataExtractor:
         try:
             logger.info("🤖 Analyzing call with LLM...")
 
-            # Build prompt with user's exact requirements
-            prompt = (
-                "You are an expert analyst of telephone conversations in the healthcare sector.\n"
-                "You must generate a summary of a call of up to 250 characters and classify it:\n"
-                "1. ACTION: completed (info provided successfully), question (unanswered questions), "
-                "transfer (transferred to operator), book (wants to book appointment)\n"
-                "2. SENTIMENT: positive, neutral, negative, N/A\n"
-                "3. SERVICE: classify the type of question with these IVR codes:\n"
-                " - 1: INFORMATION on blood sampling times or laboratory services\n"
-                " - 2: INFORMATION on Visits, Ultrasounds, or Outpatient Services\n"
-                " - 3: INFORMATION on MRIs, X-rays, CT scans, DEXA scans, and Mammograms\n"
-                " - 4: INFORMATION on sports medical visits\n"
-                " - 5: OTHER INFORMATION\n"
-                "4. ESITO_CHIAMATA: COMPLETATA (call ended naturally), TRASFERITA (transferred to human), "
-                "NON COMPLETATA (call ended prematurely)\n"
-                "5. MOTIVAZIONE: Info fornite, Argomento sconosciuto, Interrotta dal paziente, "
-                "Prenotazione, Mancata comprensione, Richiesta paziente\n, Problema Tecnico \nFuori orario"
-                "6. PATIENT_INTENT: Brief description of what patient wanted (max 100 chars)\n\n"
-                "Reply ONLY with a JSON in the format:\n"
-                '{"summary": "...", "action": "completed/question/transfer/book", '
-                '"sentiment": "positive/neutral/negative", "service": "1/2/3/4/5", '
-                '"esito_chiamata": "COMPLETATA/TRASFERITA/NON COMPLETATA", '
-                '"motivazione": "...", "patient_intent": "..."}\n\n'
-                "DO NOT add explanations or additional text.\n\n"
-                f"TRANSCRIPT:\n{transcript_text}"
-            )
+            # Build prompt with strict enum values and examples
+            prompt = f"""You are an expert analyst of telephone conversations in the healthcare sector.
+Analyze the transcript and classify the call.
+
+## CLASSIFICATION RULES
+
+### ESITO_CHIAMATA + MOTIVAZIONE (STRICT - use ONLY these combinations):
+
+**COMPLETATA** (call completed successfully):
+- "Info fornite" → L'AI ha risposto con successo alla richiesta del paziente
+- "Pren. effettuata" → L'AI ha gestito e prenotato il paziente in autonomia (prossimo sviluppo)
+
+**TRASFERITA** (call transferred to human operator):
+- "Mancata comprensione" → AI non comprende o non è certa di aver compreso la domanda del paziente
+- "Argomento sconosciuto" → AI non sa rispondere poichè non possiede conoscenza sull'argomento richiesto
+- "Richiesta paziente" → Paziente ha richiesto di parlare con un operatore umano
+- "Prenotazione" → Paziente viene trasferito per effettuare prenotazione
+
+**NON COMPLETATA** (call ended without resolution):
+- "Interrotta dal paziente" → Paziente interrompe in modo inaspettato la chiamata (chiusura dopo pochi secondi / a metà)
+- "Fuori orario" → AI ha necessità di trasferire la chiamata ad un operatore ma in quel momento gli operatori umani non sono disponibili
+- "Problema Tecnico" → L'AI non è riuscita a rispondere alla richiesta del paziente a causa di un problema tecnico
+
+### OTHER FIELDS:
+- ACTION: completed | question | transfer | book
+- SENTIMENT: positive | neutral | negative
+- SERVICE (IVR code):
+  - 1: Blood sampling times or laboratory services
+  - 2: Visits, Ultrasounds, or Outpatient Services
+  - 3: MRIs, X-rays, CT scans, DEXA scans, Mammograms
+  - 4: Sports medical visits
+  - 5: OTHER INFORMATION
+- PATIENT_INTENT: Brief description (max 100 chars)
+- SUMMARY: Max 250 characters
+
+## OUTPUT FORMAT (JSON only, no explanations):
+{{"summary": "...", "action": "...", "sentiment": "...", "service": "1-5", "esito_chiamata": "COMPLETATA|TRASFERITA|NON COMPLETATA", "motivazione": "...", "patient_intent": "..."}}
+
+CRITICAL: motivazione MUST be one of the exact values listed above. No variations allowed.
+
+TRANSCRIPT:
+{transcript_text}"""
 
             # Call OpenAI with same model as conversation (lazy initialization)
             client = get_openai_client()
@@ -301,6 +392,9 @@ class CallDataExtractor:
                 analysis_text = analysis_text.replace("```", "").strip()
 
             analysis = json.loads(analysis_text)
+
+            # Validate and fix LLM output to ensure valid enum values
+            analysis = validate_and_fix_llm_output(analysis)
 
             logger.success(f"✅ LLM Analysis completed:")
             logger.info(f"   Action: {analysis.get('action')}")
@@ -353,8 +447,8 @@ class CallDataExtractor:
 
         summary = f"Chiamata {esito_chiamata.lower()}. Paziente ha richiesto: {patient_intent or 'informazioni'}."
 
-        return {
-            "summary": summary[:250],  # Limit to 250 chars
+        fallback_result = {
+            "summary": summary[:250],
             "action": action,
             "sentiment": sentiment,
             "service": service,
@@ -362,6 +456,9 @@ class CallDataExtractor:
             "motivazione": motivazione,
             "patient_intent": patient_intent or "Richiesta informazioni"
         }
+
+        # Validate fallback result to ensure valid enum values
+        return validate_and_fix_llm_output(fallback_result)
 
     def _save_to_backup_file(self, data: Dict[str, Any]) -> bool:
         """
@@ -467,19 +564,25 @@ class CallDataExtractor:
                 logger.warning("⚠️ No transcript for transfer analysis, using fallback")
                 analysis = self._get_fallback_analysis(flow_state)
 
-            # Extract and format data for escalation API
+            # Extract and format data for escalation API (pass through all LLM fields)
             escalation_data = {
                 "summary": analysis.get("summary", "Transfer richiesto")[:250],
                 "sentiment": analysis.get("sentiment", "neutral"),
-                "action": "transfer",  # Always transfer for escalation
+                "action": analysis.get("action", "transfer"),
                 "duration_seconds": int(duration_seconds),
-                "service": str(analysis.get("service", "5"))  # IVR code as string
+                "service": str(analysis.get("service", "5")),
+                # Pass through LLM-generated categorization
+                "esito_chiamata": analysis.get("esito_chiamata", "TRASFERITA"),
+                "motivazione": analysis.get("motivazione", "Richiesta paziente"),
+                "patient_intent": analysis.get("patient_intent", "Richiesta assistenza operatore")
             }
 
             logger.success(f"✅ Transfer analysis completed:")
             logger.info(f"   Duration: {escalation_data['duration_seconds']}s")
             logger.info(f"   Sentiment: {escalation_data['sentiment']}")
             logger.info(f"   Service: {escalation_data['service']}")
+            logger.info(f"   Esito: {escalation_data['esito_chiamata']}")
+            logger.info(f"   Motivazione: {escalation_data['motivazione']}")
             logger.info(f"   Summary: {escalation_data['summary'][:100]}...")
 
             return escalation_data
@@ -489,13 +592,16 @@ class CallDataExtractor:
             import traceback
             traceback.print_exc()
 
-            # Return safe defaults
+            # Return safe defaults with valid enum values
             return {
                 "summary": "Transfer richiesto dal paziente",
                 "sentiment": "neutral",
                 "action": "transfer",
                 "duration_seconds": 0,
-                "service": "5"
+                "service": "5",
+                "esito_chiamata": "TRASFERITA",
+                "motivazione": "Richiesta paziente",
+                "patient_intent": "Richiesta assistenza operatore"
             }
 
     async def save_to_database(self, flow_state: Dict[str, Any]) -> bool:
@@ -526,19 +632,19 @@ class CallDataExtractor:
                 logger.info("📋 Using pre-computed transfer analysis for Supabase save")
                 transfer_data = flow_state["transfer_analysis"]
 
-                # Use transfer analysis data
-                action = "transfer"
+                # Use LLM-generated values from transfer analysis (no hardcoding)
+                action = transfer_data.get("action", "transfer")
                 sentiment = transfer_data.get("sentiment", "neutral")
                 service = str(transfer_data.get("service", "5"))
-                esito_chiamata = "TRASFERITA"
-                motivazione = "Richiesta paziente"
-                patient_intent = "Richiesta assistenza operatore"
+                esito_chiamata = transfer_data.get("esito_chiamata", "TRASFERITA")
+                motivazione = transfer_data.get("motivazione", "Richiesta paziente")
+                patient_intent = transfer_data.get("patient_intent", "Richiesta assistenza operatore")
                 summary = transfer_data.get("summary", "Transfer richiesto")[:250]
 
                 # Duration already calculated during transfer
                 duration_seconds = transfer_data.get("duration_seconds", duration_seconds)
 
-                logger.info("✅ Transfer analysis data loaded from flow_state")
+                logger.info("✅ Transfer analysis data loaded from flow_state (LLM-generated)")
 
             else:
                 # Normal post-call analysis (no transfer)
